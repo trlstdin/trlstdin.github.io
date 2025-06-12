@@ -71,6 +71,26 @@
             position: relative;
             transition: all 0.3s ease;
         }
+            
+        @media (max-width: 768px) {
+            .container { max-width: 100%; padding: 15px; }
+            .excel-table { display: block; } /* 改为垂直布局 */
+            .excel-table td { padding: 8px; }
+        }
+
+              /* 小屏手机 (320px-480px) */
+        @media (max-width: 480px) {
+              /* 更紧凑的布局调整 */
+        }
+
+              /* 中屏手机 (481px-600px) */
+        @media (min-width: 481px) and (max-width: 600px) {
+              /* 中等调整 */
+        }
+
+             /* 大屏手机/平板 (601px-768px) */
+        @media (min-width: 601px) and (max-width: 768px) {
+        }
 
         .excel-table th {
             background: linear-gradient(135deg, #667eea, #764ba2);
@@ -187,40 +207,40 @@
         <table class="excel-table" id="excelTable">
             <thead>
                 <tr>
-                    <th>姓名</th>
-                    <th>部门</th>
-                    <th>职位</th>
-                    <th>邮箱</th>
-                    <th>电话</th>
-                    <th>备注</th>
+                    <th>起个昵称</th>
+                    <th>借由ai实现的欲望</th>
+                    <th>要达到的目标有什么意义</th>
+                    <th>为ai实践特征起名</th>
+                    <th>提示词最好的结果</th>
+                    <th>提示词最坏的结果</th>
                 </tr>
             </thead>
             <tbody id="tableBody">
                 <!-- 现有数据行（模拟从Issues同步的数据） -->
                 <tr>
-                    <td>张三</td>
-                    <td>技术部</td>
-                    <td>前端工程师</td>
-                    <td>zhangsan@example.com</td>
-                    <td>13800138001</td>
-                    <td>负责前端开发</td>
+                    <td>1</td>
+                    <td>2</td>
+                    <td>3</td>
+                    <td>2</td>
+                    <td>2</td>
+                    <td>4</td>
                 </tr>
                 <tr>
-                    <td>李四</td>
-                    <td>产品部</td>
-                    <td>产品经理</td>
-                    <td>lisi@example.com</td>
-                    <td>13800138002</td>
-                    <td>负责产品规划</td>
+                    <td>1</td>
+                    <td>2</td>
+                    <td>4</td>
+                    <td>lm</td>
+                    <td>102</td>
+                    <td>2</td>
                 </tr>
                 <!-- 可编辑的新行 -->
                 <tr class="editable-row">
-                    <td contenteditable="true" placeholder="请输入姓名"></td>
-                    <td contenteditable="true" placeholder="请输入部门"></td>
-                    <td contenteditable="true" placeholder="请输入职位"></td>
-                    <td contenteditable="true" placeholder="请输入邮箱"></td>
-                    <td contenteditable="true" placeholder="请输入电话"></td>
-                    <td contenteditable="true" placeholder="请输入备注"></td>
+                    <td contenteditable="true" placeholder="4"></td>
+                    <td contenteditable="true" placeholder="6"></td>
+                    <td contenteditable="true" placeholder="4"></td>
+                    <td contenteditable="true" placeholder="2"></td>
+                    <td contenteditable="true" placeholder="7"></td>
+                    <td contenteditable="true" placeholder="5"></td>
                 </tr>
             </tbody>
         </table>
