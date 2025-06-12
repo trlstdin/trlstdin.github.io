@@ -170,6 +170,13 @@
         @keyframes successPulse {
             from { transform: scale(0.8); opacity: 0; }
             to { transform: scale(1); opacity: 1; }
+
+        @media screen and (max-width: 768px) {
+            .excel-table td {
+                white-space: normal !important;
+                word-break: break-word !important;
+                height: auto !important;
+            }
         }
     </style>
 </head>
