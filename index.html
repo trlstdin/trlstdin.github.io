@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel 表格</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 2px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            animation: backgroundShift 10s ease-in-out infinite alternate;
+        }
+
+        @keyframes backgroundShift {
+            0% { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+            100% { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 2px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            animation: slideIn 1s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(-50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        /* 表格外层容器：负责处理横向滚动 */
+        .excel-table-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            width: 100%;
+            scrollbar-width: none; /* Firefox */
+            margin: 20px 0;
+        }
+        
+        .excel-table-container::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* 表格主体：使用传统表格布局 */
+        .excel-table {
+            width: 100%;
+            border-collapse: collapse;
+            animation: tableAppear 0.5s ease-out;
+        }
+
+        @keyframes tableAppear {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .excel-table th, 
+        .excel-table td {
+            padding: 2px 1px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        .excel-table th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+        }
+
+        .excel-table tr:nth-child(even) {
+            background: rgba(102, 126, 234, 0.05);
+        }
+
+        .excel-table tr:hover td {
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .excel-table td[contenteditable="true"] {
+            cursor: text;
+            background: rgba(255, 255, 255, 0.8);
+            transition: all 0.3s ease;
+        }
+
+        .excel-table td[contenteditable="true"]:focus {
+            background: rgba(102, 126, 234, 0.1);
+            outline: 2px solid #667eea;
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+        }
+
+        .excel-table td[contenteditable="true"]:hover {
+            background: rgba(102, 126, 234, 0.05);
+        }
+
+        /* 按钮样式 */
+        .width-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .width-btn:hover {
+            background: linear-gradient(135deg, #764ba2, #667eea);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 10px rgba(102, 126, 234, 0.3);
+        }
+
+        .submit-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 2px 24px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            display: block;
+            margin: 30px auto 0;
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px rgba(102, 126, 234, 0.4);
+            background: linear-gradient(135deg, #764ba2, #667eea);
+        }
+
+        .submit-btn:active {
+            transform: translateY(-1px);
+        }
+
+        .floating-particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); opacity: 1; }
+            50% { transform: translateY(-20px) rotate(180deg); opacity: 0.5; }
+        }
+
+        .success-message {
+            display: none;
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            animation: successPulse 0.5s ease-out;
+        }
+
+        @keyframes successPulse {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        /* 弹窗样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .modal-content {
+            background: white;
+            margin: 5% auto;
+            padding: 2px;
+            border-radius: 15px;
+            width: 80%;
+            max-width: 1000px;
+            height: 80vh;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 28px;
+            cursor: pointer;
+            color: #667eea;
+        }
+
+                    .text-section {
+            padding: 15px;
+            margin-bottom: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            line-height: 1.6;
+        }
+        .image-section {
+            max-height: 50vh;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .content-image {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 浮动粒子特效 -->
+    <div class="floating-particles" id="particles"></div>
+
+    <div class="container">
+        <div class="success-message" id="successMessage">
+            数据提交成功！
+        </div>
+
+        <!-- 添加表格容器 -->
+        <div class="excel-table-container">
+<table class="excel-table" id="excelTable">
+    <thead>
+        <tr>
+            <th>提示词名字</th>
+            <th>有什么用</th>
+            <th>最好有什么结果</th>
+            <th>提示词和聊天记录</th>
+            <th></th>
+            <th>电话</th>
+            <th>分类</th>
+        </tr>
+    </thead>
+    <tbody id="tableBody">
+        <tr>
+            <td>例</td>
+            <td></td>
+            <td>前端工程师</td>
+            <td><button class="width-btn" onclick="openModal('example')">提示词</button></td>
+            <td>zha</td>
+            <td>11</td>
+            <td>负责前端开发</td>
+        </tr>
+        <tr>
+            <td>ai别废话，说人话</td>
+            <td>2</td>
+            <td>产品经理</td>
+            <td><button class="width-btn" onclick="openModal('lisi')">提示词</button></td>
+            <td>lis</td>
+            <td>138</td>
+            <td>负责产品 规划</td>
+        </tr>
+        <tr>
+            <td>王五</td>
+            <td>3</td>
+            <td>市场专员</td>
+            <td><button class="width-btn" onclick="openModal('wangwu')">提示词</button></td>
+            <td>wan</td>
+            <td>03</td>
+            <td>负责市场推广</td>
+        </tr>
+        <tr>
+            <td>赵六</td>
+            <td>4</td>
+            <td>H</td>
+            <td><button class="width-btn" onclick="openModal('zhaoliu')">提示词</button></td>
+            <td>zha</td>
+            <td>13</td>
+            <td>负责人事管理</td>
+        </tr>
+        <tr>
+            <td>主义主义笔记整合大师</td>
+            <td>2</td>
+            <td>会计</td>
+            <td><button class="width-btn" onclick="openModal('qianqi')">提示词</button></td>
+
+            <td>qian</td>
+            <td>1</td>
+            <td>负责财务核算</td>
+        </tr>
+        <tr class="editable-row">
+            <td contenteditable="true" placeholder="请输入"></td>
+            <td contenteditable="true" placeholder="请输入"></td>
+            <td contenteditable="true" placeholder="请输入"></td>
+            <td><button class="width-btn" onclick="openModal('submit')">提交提示词</button></td>
+            <td contenteditable="true" placeholder="请输入"></td>
+            <td contenteditable="true" placeholder="请输入"></td>
+            <td contenteditable="true" placeholder="请输入"></td>
+        </tr>
+    </tbody>
+</table>
+
+<button class="submit-btn" onclick="submitData()">提交到 Excel</button>
+
+<div id="modal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn">&times;</span>
+        <h2>这是弹出窗口</h2>
+        <p>内容可以自由编辑，大小已设置为全屏的80%</p>
+    </div>
+</div>
+
+    <script>
+        // 创建浮动粒子特效
+        function createParticles() {
+            const particlesContainer = document.getElementById('particles');
+            for (let i = 0; i < 20; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.top = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 6 + 's';
+                particle.style.animationDuration = (Math.random() * 3 + 3) + 's';
+                particlesContainer.appendChild(particle);
+            }
+        }
+
+        // 初始化粒子特效
+        createParticles();
+
+        // 模拟从Coding Issues加载数据的函数
+        async function loadExcelData() {
+            console.log('从Coding Issues同步Excel数据...');
+        }
+
+        // 提交数据到Coding Issues
+        async function submitData() {
+            const editableRows = document.querySelectorAll('.editable-row');
+            const tableData = [];
+
+            editableRows.forEach(row => {
+                const cells = row.querySelectorAll('td[contenteditable="true"]');
+                const rowData = [];
+                let hasData = false;
+
+                cells.forEach(cell => {
+                    const value = cell.textContent.trim();
+                    rowData.push(value);
+                    if (value) hasData = true;
+                });
+
+                if (hasData) {
+                    tableData.push({
+                        name: rowData[0],
+                        department: rowData[1],
+                        position: rowData[2],
+                        email: rowData[3],
+                        phone: rowData[4],
+                        note: rowData[5]
+                    });
+                }
+            });
+
+            if (tableData.length === 0) {
+                alert('请填写至少一行数据');
+                return;
+            }
+
+            try {
+                console.log('提交数据到Coding Issues:', tableData);
+                
+                // 显示成功消息
+                const successMessage = document.getElementById('successMessage');
+                successMessage.style.display = 'block';
+                setTimeout(() => {
+                    successMessage.style.display = 'none';
+                }, 3000);
+
+                // 添加新提交的数据到表格显示区域
+                addDataToTable(tableData);
+                
+                // 清空可编辑行
+                clearEditableRows();
+
+            } catch (error) {
+                console.error('提交失败:', error);
+                alert('提交失败，请重试');
+            }
+        }
+
+        // 将数据添加到表格显示区域
+        function addDataToTable(dataArray) {
+            const tableBody = document.getElementById('tableBody');
+            const editableRow = document.querySelector('.editable-row');
+            
+            dataArray.forEach(data => {
+                const newRow = document.createElement('tr');
+                newRow.innerHTML = `
+    
+                `;
+                tableBody.insertBefore(newRow, editableRow);
+            });
+        }
+
+        // 清空可编辑行
+        function clearEditableRows() {
+            const editableCells = document.querySelectorAll('.editable-row td[contenteditable="true"]');
+            editableCells.forEach(cell => {
+                cell.textContent = '';
+            });
+        }
+
+        function openModal(buttonType) {
+    const modal = document.getElementById('modal');
+    const modalContent = modal.querySelector('.modal-content');
+    let title = '详细内容';
+    let content = '';
+    let imagePath = '';
+
+    // 根据按钮类型设置不同的标题、内容和图片
+    switch(buttonType) {
+        case 'example':
+            title = '示例提示词详情';
+            content = ``;  
+            break;
+        case 'lisi':
+            title = '李四的工作详情';
+            content = `读者受教育程度极低，几乎是一个文盲：
+读者不理解深刻的文学手法，以及隐喻、联想和意象叠加：
+读者理解的词汇大多简单日常，不理解任何生理学、医学、物理学的专业词汇：
+读者喜欢看行文流畅、节奏紧凑、审美正常的老白文：
+不要伏笔和冲突：环境描写仅保持最小限度和必要的，避免赘余的细节破坏了代入感：
+使用抽象、概略、模糊的文字来表现时空感和数目：
+避免重复对话与叙述：避免ooc根据当前情景续写，不可以随意更换场景和角色状态。拒绝设定堆砌、避免信息过载、不故弄玄虚。设定仅服务于故事、逐步渐进`;
+          
+            break;
+        case 'wangwu':
+            title = '王五的工作详情';
+            content = ``;
+         
+            break;
+        case 'zhaoliu':
+            title = '赵六的工作详情';
+            content = ``;
+            imagePath = '03.jpg';
+            break;
+        case 'qianqi':
+            title = ``;
+        
+            break;
+        case 'submit':
+            title = '提交您的提示词';
+            content = '请输入您的提示词内容';
+            imagePath = '02.png';
+            break;
+
+    }
+
+    modalContent.innerHTML = `
+    <span class="close-btn">&times;</span>
+    <h2>${title}</h2>
+    <div class="text-section">${content}</div>
+    <div class="image-section">
+        <img src="${imagePath}" alt="说明图片" class="content-image">
+    </div>
+        
+    `;
+    
+    modal.querySelector('.close-btn').addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+    
+    modal.style.display = 'block';
+}
+
+        // 关闭弹窗
+        document.querySelector('.close-btn').addEventListener('click', function() {
+            document.getElementById('modal').style.display = 'none';
+        });
+
+        // 点击蒙层关闭
+        window.addEventListener('click', function(event) {
+            if (event.target === document.getElementById('modal')) {
+                document.getElementById('modal').style.display = 'none';
+            }
+        });
+
+        // 定时同步数据（模拟Coding CI定时任务）
+        setInterval(() => {
+            loadExcelData();
+        }, 300000); // 每5分钟同步一次
+
+        // 页面加载时初始化数据
+        window.addEventListener('load', () => {
+            loadExcelData();
+        });
+
+        // 为可编辑单元格添加占位符效果
+        document.addEventListener('DOMContentLoaded', function() {
+            const editableCells = document.querySelectorAll('td[contenteditable="true"]');
+            editableCells.forEach(cell => {
+                const placeholder = cell.getAttribute('placeholder');
+                if (placeholder && !cell.textContent.trim()) {
+                    cell.style.color = '#999';
+                    cell.textContent = placeholder;
+                }
+
+                cell.addEventListener('focus', function() {
+                    if (this.textContent === placeholder) {
+                        this.textContent = '';
+                        this.style.color = '#333';
+                    }
+                });
+
+                cell.addEventListener('blur', function() {
+                    if (!this.textContent.trim()) {
+                        this.style.color = '#999';
+                        this.textContent = placeholder;
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
