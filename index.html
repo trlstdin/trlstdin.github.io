@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel 表格</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 2px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            animation: backgroundShift 10s ease-in-out infinite alternate;
+        }
+        @keyframes backgroundShift {
+            0% { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+            100% { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 2px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            animation: slideIn 1s ease-out;
+        }
+        @keyframes slideIn {
+            from { transform: translateY(-50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        /* 表格外层容器：负责处理横向滚动 */
+        .excel-table-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            width: 100%;
+            scrollbar-width: none; /* Firefox */
+            margin: 20px 0;
+        }
+        .excel-table-container::-webkit-scrollbar {
+            display: none;
+        }
+        /* 表格主体：使用传统表格布局 */
+        .excel-table {
+            width: 100%;
+            border-collapse: collapse;
+            animation: tableAppear 0.5s ease-out;
+        }
+        @keyframes tableAppear {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .excel-table th,
+        .excel-table td {
+            padding: 2px 1px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        .excel-table th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+        }
+        .excel-table tr:nth-child(even) {
+            background: rgba(102, 126, 234, 0.05);
+        }
+        .excel-table tr:hover td {
+            background: rgba(102, 126, 234, 0.1);
+        }
+        .excel-table td[contenteditable="true"] {
+            cursor: text;
+            background: rgba(255, 255, 255, 0.8);
+            transition: all 0.3s ease;
+        }
+        .excel-table td[contenteditable="true"]:focus {
+            background: rgba(102, 126, 234, 0.1);
+            outline: 2px solid #667eea;
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+        }
+        .excel-table td[contenteditable="true"]:hover {
+            background: rgba(102, 126, 234, 0.05);
+        }
+        /* 按钮样式 */
+        .width-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+        .width-btn:hover {
+            background: linear-gradient(135deg, #764ba2, #667eea);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 10px rgba(102, 126, 234, 0.3);
+        }
+        .submit-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 2px 24px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            display: block;
+            margin: 1px auto 0;
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .submit-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px rgba(102, 126, 234, 0.4);
+            background: linear-gradient(135deg, #764ba2, #667eea);
+        }
+        .submit-btn:active {
+            transform: translateY(-1px);
+        }
+        .floating-particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); opacity: 1; }
+            50% { transform: translateY(-20px) rotate(180deg); opacity: 0.5; }
+        }
+        .success-message {
+            display: none;
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            animation: successPulse 0.5s ease-out;
+        }
+        @keyframes successPulse {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        
+        /* 状态消息样式 */
+       .status-message {
+    padding: 2px 2px;
+    border-radius: 2px;
+    margin: 1px 0;
+    font-size: 17px;
+    font-weight: bold;
+    text-align: center;
+    min-height: 18px;
+    transition: all 0.3s ease;
+    border: 1px solid transparent;
+}
+        
+        /* 成功状态样式 */
+        .status-message.success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        
+        /* 错误状态样式 */
+        .status-message.error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        
+        /* 加载状态样式 */
+        .status-message.loading {
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+            color: #0c5460;
+        }
+        
+        /* 弹窗样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            animation: fadeIn 0.3s ease-out;
+        }
+        .modal-content {
+            background: white;
+            margin: 5% auto;
+            padding: 2px;
+            border-radius: 15px;
+            width: 80%;
+            max-width: 1000px;
+            height: 80vh;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            overflow-y: auto;
+            position: relative;
+        }
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 28px;
+            cursor: pointer;
+            color: #667eea;
+        }
+        .text-section {
+            padding: 15px;
+            margin-bottom: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            line-height: 1.6;
+        }
+        .image-section {
+            max-height: 50vh;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .content-image {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        /* 提交提示词表单样式 */
+        .submit-form-container {
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+            box-sizing: border-box;
+        }
+        
+        .form-group input:focus,
+        .form-group textarea:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
+        }
+        
+        .form-group textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+        
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #fafafa;
+        }
+        
+        .upload-area:hover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+        
+        .upload-text {
+            color: #666;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        
+        .preview-image {
+            max-width: 100%;
+            max-height: 200px;
+            margin-top: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* 图片预览容器和移除按钮样式 */
+        .image-preview-container {
+            position: relative;
+            display: inline-block;
+            margin-top: 10px;
+        }
+        
+        .remove-image-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff4757;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+        
+        .remove-image-btn:hover {
+            background: #ff3742;
+            transform: scale(1.1);
+        }
+
+
+
+
+</style>
+</head>
+<body>
+    <!-- 浮动粒子特效 -->
+    <div class="floating-particles" id="particles"></div>
+     <div class="container">
+        <!-- 添加表格容器 -->
+        <div class="excel-table-container">
+<table class="excel-table" id="excelTable">
+    <thead>
+        <tr>
+            <th>提示词叫啥</th>
+            <th>用在何处</th>
+            <th>希望变成怎样</th>
+            <th>别的提示词和聊天记录</th>
+            <th>2</th>
+            <th>1</th>
+            <th>领域/功能分类</th>
+        </tr>
+    </thead>
+    <tbody id="tableBody">
+        <tr>
+            <td>例</td>
+            <td></td>
+            <td>前端工程师</td>
+            <td><button class="width-btn" onclick="openModal('example')">提示词</button></td>
+            <td>zha</td>
+            <td>11</td>
+            <td>负责前端开发</td>
+        </tr>
+        <tr>
+            <td>ai别废话，说人话</td>
+            <td>在频繁对话中，避免科幻垃圾和ai废话，并且不说一堆看不懂的术语</td>
+            <td>产品经理</td>
+            <td><button class="width-btn" onclick="openModal('lisi')">提示词</button></td>
+            <td>lis</td>
+            <td>138</td>
+            <td>负责产品 规划</td>
+        </tr>
+        <tr>
+            <td>王五</td>
+            <td>3</td>
+            <td>市场专员</td>
+            <td><button class="width-btn" onclick="openModal('wangwu')">提示词</button></td>
+            <td>wan</td>
+            <td>03</td>
+            <td>负责市场推广</td>
+        </tr>
+        <tr>
+            <td>赵六</td>
+            <td>4</td>
+            <td>H</td>
+            <td><button class="width-btn" onclick="openModal('zhaoliu')">提示词</button></td>
+            <td>zha</td>
+            <td>13</td>
+            <td>负责人事管理</td>
+        </tr>
+        <tr>
+            <td>主义主义笔记整合大师</td>
+            <td>2</td>
+            <td>会计</td>
+            <td><button class="width-btn" onclick="openModal('qianqi')">提示词</button></td>
+            <td>qian</td>
+            <td>1</td>
+            <td>负责财务核算</td>
+        </tr>
+        <tr class="editable-row">
+            <td contenteditable="true" placeholder="请输入"></td>
+            <td contenteditable="true" placeholder="请输入"></td>
+            <td contenteditable="true" placeholder="请输入"></td>
+            <td><button class="width-btn" onclick="openModal('submit')">提交提示词/聊天记录</button></td>
+            <td contenteditable="true" placeholder="请输入"></td>
+            <td contenteditable="true" placeholder="请输入"></td>
+            <td contenteditable="true" placeholder="请输入"></td>
+        </tr>
+    </tbody>
+</table>
+<div class="status-message" id="statusMessage"></div>
+<button class="submit-btn" onclick="submitData(event)">上传表格</button>
+
+<!-- 普通提示词弹窗 -->
+<div id="modal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn">&times;</span>
+        <h2>这是弹出窗口</h2>
+        <p>内容可以自由编辑，大小已设置为全屏的80%</p>
+    </div>
+</div>
+
+<!-- 提交提示词专用弹窗 -->
+<div id="submitModal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn">&times;</span>
+        <h2>提交提示词</h2>
+        <div class="submit-form-container">
+            <div class="form-group">
+                <label for="promptContent">提示词内容：</label>
+                <textarea id="promptContent" name="promptContent" placeholder="请输入您的提示词内容"></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label>上传图片或截图：</label>
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-text">点击上传图片或拖入图片</div>
+                    <input type="file" id="imageUpload" accept="image/*" style="display: none;">
+                </div>
+                <div id="imagePreview"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <script>
+        // 统一的图片数据变量
+        let uploadedImageData = [];
+        let submitFormData = '';
+        let isSubmitModalInitialized = false;
+
+        // 创建浮动粒子特效
+        function createParticles() {
+            const particlesContainer = document.getElementById('particles');
+            for (let i = 0; i < 20; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.top = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 6 + 's';
+                particle.style.animationDuration = (Math.random() * 3 + 3) + 's';
+                particlesContainer.appendChild(particle);
+            }
+        }
+
+        // 初始化粒子特效
+        createParticles();
+        
+        // 将数据添加到表格显示区域
+        function addDataToTable(dataArray) {
+            const tableBody = document.getElementById('tableBody');
+            const editableRow = document.querySelector('.editable-row');
+            dataArray.forEach(data => {
+                const newRow = document.createElement('tr');
+                newRow.innerHTML = `
+                `;
+                tableBody.insertBefore(newRow, editableRow);
+            });
+        }
+        
+        // 清空可编辑行
+        function clearEditableRows() {
+            const editableCells = document.querySelectorAll('.editable-row td[contenteditable="true"]');
+            editableCells.forEach(cell => {
+                cell.textContent = '';
+            });
+        }
+        
+        // 修改后的openModal函数
+        function openModal(buttonType) {
+            if (buttonType === 'submit') {
+                // 处理提交提示词弹窗
+                const submitModal = document.getElementById('submitModal');
+                
+                // 初始化提交弹窗功能（仅执行一次）
+                if (!isSubmitModalInitialized) {
+                    setupFileUpload();
+                    
+                    const promptTextarea = document.getElementById('promptContent');
+                    if (promptTextarea) {
+                        promptTextarea.addEventListener('input', (e) => {
+                            submitFormData = e.target.value;
+                        });
+                    }
+                    
+                    isSubmitModalInitialized = true;
+                }
+                
+                submitModal.style.display = 'block';
+                return;
+            }
+            
+            // 处理其他提示词弹窗
+            const modal = document.getElementById('modal');
+            const modalContent = modal.querySelector('.modal-content');
+            let title = '详细内容';
+            let content = '';
+            let imagePath = '';
+            
+            // 根据按钮类型设置不同的标题、内容和图片
+            switch(buttonType) {
+                case 'example':
+                    title = '示例提示词详情';
+                    content = `1`;
+                    imagePath = '03.jpg';  
+                    break;
+                case 'lisi':
+                    title = '';
+                    content = ``;
+                    imagePath = '04.jpg';
+                    break;
+                case 'wangwu':
+                    title = '王五的工作详情';
+                    content = `1`;
+                    imagePath = '03.jpg';
+                    break;
+                case 'zhaoliu':
+                    title = '赵六的工作详情';
+                    content = `1`;
+                    imagePath = '03.jpg';
+                    break;
+                case 'qianqi':
+                    title = ``;
+                    imagePath = '02.png';
+                    break;
+            }
+            
+            modalContent.innerHTML = `
+                <span class="close-btn">&times;</span>
+                <h2>${title}</h2>
+                <div class="text-section">${content}</div>
+                <div class="image-section">
+                    <img src="${imagePath}" class="content-image">
+                </div>
+            `;
+            
+            modal.querySelector('.close-btn').addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+            modal.style.display = 'block';
+        }
+        
+        // setupFileUpload函数，包含图片移除功能
+        function setupFileUpload() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('imageUpload');
+            const imagePreview = document.getElementById('imagePreview');
+            
+            // 点击上传区域触发文件选择
+            uploadArea.addEventListener('click', () => {
+                fileInput.click();
+            });
+            
+            // 文件选择变化时处理
+            fileInput.addEventListener('change', handleFileSelect);
+            
+            // 拖拽功能
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleFile(files[0]);
+                }
+            });
+            
+            function handleFileSelect(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    handleFile(file);
+                }
+            }
+            
+            function handleFile(file) {
+                if (file.type.startsWith('image/')) {
+                    // 生成随机数前缀
+                    const prefix = Math.floor(Math.random() * 90000) + 10000;
+                    // 创建新的文件名
+                    const newFileName = prefix + '_' + file.name;
+                    // 创建新的File对象，使用新文件名
+                    const newFile = new File([file], newFileName, { type: file.type });
+                    
+                    // 直接将File对象添加到全局变量
+                    uploadedImageData.push(newFile);
+                    window.uploadedImageData = uploadedImageData;
+                    
+                    // 创建预览URL用于显示
+                    const previewUrl = URL.createObjectURL(file);
+                    
+                    // 创建带有移除按钮的图片预览容器
+                    imagePreview.innerHTML = `
+                        <div class="image-preview-container">
+                            <img src="${previewUrl}" class="preview-image">
+                            <button class="remove-image-btn" onclick="removeImage()" title="移除图片">×</button>
+                        </div>
+                    `;
+                } else {
+                    alert('请选择图片文件');
+                }
+            }
+        }
+        
+        // 移除图片功能
+        function removeImage() {
+            const fileInput = document.getElementById('imageUpload');
+            const imagePreview = document.getElementById('imagePreview');
+            
+            // 清空预览区域和数据
+            imagePreview.innerHTML = '';
+            fileInput.value = '';
+            uploadedImageData = [];
+            window.uploadedImageData = [];
+            
+            console.log('图片已移除');
+        }
+  
+        // 关闭弹窗事件处理
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('close-btn')) {
+                // 关闭普通弹窗
+                if (e.target.closest('#modal')) {
+                    document.getElementById('modal').style.display = 'none';
+                }
+                // 关闭提交弹窗
+                if (e.target.closest('#submitModal')) {
+                    document.getElementById('submitModal').style.display = 'none';
+                }
+            }
+        });
+    
+        async function submitData(event) {
+            // 获取当前行的所有单元格
+            const lastRow = document.querySelector('.editable-row');
+            const cells = lastRow.querySelectorAll('td');
+            
+            // 准备存储CSV数据的数组
+            let csvData = [];
+            
+            // 遍历所有单元格
+            cells.forEach(cell => {
+                // 跳过图片和操作列（最后两列）
+                if (!cell.querySelector('.upload-area') && !cell.querySelector('button')) {
+                    const cellText = cell.textContent.trim();
+                    csvData.push(`"${(cellText || "").replace(/"/g, '""')}"`);
+                }
+            });
+            
+            csvData.push(`"${(submitFormData || "").replace(/"/g, '""')}"`);
+
+            // 处理上传的图片数据（直接使用File对象的名称）
+            const imageNames = (window.uploadedImageData || []).map(file => file.name).join(',');
+            csvData.push(`"${imageNames.replace(/"/g, '""')}"`);
+            
+            // 将CSV数据合并为一行
+            const csvLine = csvData.join(',');
+            const csvContent = csvLine + '\n'; // 添加换行符
+            const base64Content = btoa(unescape(encodeURIComponent(csvContent)));
+            
+            // 上传逻辑
+            const uploadToGitHub = async (path, content) => {
+                const owner = 'trlstdin'; // 替换为你的GitHub用户名
+                const repo = 'kangstand'; // 替换为你的仓库名
+                const branch = 'main';
+                const token = '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'; // 替换为你的GitHub个人访问令牌
+                
+                const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+                const headers = {
+                    'Authorization': `token ${token}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/vnd.github.v3+json'
+                };
+                
+                const body = {
+                    message: `Upload ${path}`,
+                    content: content,
+                    branch: branch
+                };
+                
+                const response = await fetch(apiUrl, {
+                    method: 'PUT',
+                    headers: headers,
+                    body: JSON.stringify(body)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`上传失败: ${response.statusText}`);
+                }
+                
+                return response.json();
+            };
+            
+            const uploadAllImages = async () => {
+                return await Promise.all(
+                  (window.uploadedImageData || []).map(async (file) => {
+                    // 直接使用File对象转换为base64上传
+                    const base64String = await new Promise((resolve) => {
+                      const reader = new FileReader();
+                      reader.onload = () => resolve(reader.result.split(',')[1]);
+                      reader.readAsDataURL(file);
+                    });
+                    return uploadToGitHub(`images/${file.name}`, base64String);
+                  })
+                );
+              };
+         
+            const firstColumnData = cells[0].textContent.trim() || 'data';
+            const randomSuffix = Math.random().toString(36).slice(2, 8);
+            const dynamicCsvName = `data/${firstColumnData}_${randomSuffix}.csv`;
+   
+            try {
+                document.getElementById('statusMessage').textContent = '正在上传数据...';
+                
+                await Promise.all([
+                    uploadAllImages(),
+                    uploadToGitHub(dynamicCsvName, base64Content)
+                ]);
+                
+                document.getElementById('statusMessage').textContent = '数据上传成功！';
+                document.getElementById('statusMessage').style.color = 'green';
+                
+                // 清空上传的数据
+                uploadedImageData = [];
+                window.uploadedImageData = [];
+               
+                const lastRow = document.querySelector('.editable-row'); // 获取当前可编辑行
+                lastRow.querySelectorAll('[contenteditable="true"]').forEach(cell => {
+                    cell.textContent = ''; // 清空该行的可编辑单元格
+                });
+                
+            } catch (error) {
+                document.getElementById('statusMessage').textContent = `上传失败: ${error.message}`;
+                document.getElementById('statusMessage').style.color = 'red';
+                console.error('上传错误:', error);
+            }
+        }
+
+        // 为可编辑单元格添加占位符效果
+        document.addEventListener('DOMContentLoaded', function() {
+            const editableCells = document.querySelectorAll('td[contenteditable="true"]');
+            editableCells.forEach(cell => {
+                const placeholder = cell.getAttribute('placeholder');
+                if (placeholder && !cell.textContent.trim()) {
+                    cell.style.color = '#999';
+                    cell.textContent = placeholder;
+                }
+                cell.addEventListener('focus', function() {
+                    if (this.textContent === placeholder) {
+                        this.textContent = '';
+                        this.style.color = '#333';
+                    }
+                });
+                cell.addEventListener('blur', function() {
+                    if (!this.textContent.trim()) {
+                        this.style.color = '#999';
+                        this.textContent = placeholder;
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
+
