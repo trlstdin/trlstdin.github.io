@@ -1,0 +1,715 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>浏览器实时交互</title><style>*{box-sizing:border-box}body{margin:0;background:#0b0f17;color:#e7edf8;font:14px system-ui;overflow:hidden}header{height:64px;display:flex;align-items:center;gap:12px;padding:0 24px;background:#121925;border-bottom:1px solid #253044}b{font-size:18px}small{color:#98a9c1}button{background:#243857;border:1px solid #3b506d;color:white;padding:9px 16px;border-radius:8px;cursor:pointer}#control.on{background:#125c48;border-color:#2c9d7b}#full{margin-left:auto}main{height:calc(100dvh - 152px);display:flex;align-items:center;justify-content:center;padding:10px;position:relative}canvas{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;box-shadow:0 12px 60px #0008;border-radius:6px;touch-action:none;outline:none}footer{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;color:#8295af}#status{color:#ffc57d}#keyboard{position:fixed;left:-200px;top:0;width:1px;height:1px;opacity:0}#empty{position:absolute;color:#95a7c2;pointer-events:none}@media(max-width:650px){header{padding:0 10px;gap:8px}small{display:none}button{padding:8px 10px}footer{padding:0 10px;font-size:12px}}#tabs{height:44px;display:flex;gap:4px;padding:4px 10px;overflow-x:auto;background:#172130}#tabs button{flex:0 0 auto;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 12px}#tabs button.selected{background:#386797;border-color:#8ab7e6}main.disconnected canvas{opacity:.18!important;filter:grayscale(1)}main.disconnected~*{cursor:default}#empty{z-index:4!important;background:#121925ed;padding:20px 28px;border:1px solid #ff9d9d;border-radius:10px;color:#ffb3b3}button:disabled{opacity:.5;cursor:not-allowed}</style></head><body><header><b id="environment-title">浏览器投屏</b><button id="control" disabled>正在连接控制</button><small id="hint">连接后默认启用控制</small><button id="full">全屏</button></header><nav id="tabs" aria-label="远程窗口标签页"></nav><main><canvas id="screen" tabindex="0"></canvas><span id="empty">正在连接浏览器…</span></main><textarea id="keyboard" aria-label="远程浏览器键盘" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea><footer><span id="logging-fault" role="alert"></span><span id="status">正在连接…</span><span id="stats">实时推送 · WebSocket</span></footer><script>
+(()=>{const key='cast-errors:'+location.pathname;
+function capture(event,error){try{const rows=JSON.parse(localStorage.getItem(key)||'[]');rows.push({type:'clientError',id:crypto.randomUUID(),event,message:String(error?.message||error||event).replace(/(?:https?|wss?):\/\/[^\s"']+/g,'[url]')});localStorage.setItem(key,JSON.stringify(rows));}catch(e){console.error('投屏启动错误记录失败',e);document.querySelector('#logging-fault').textContent='启动错误日志无法保存：'+e.message;}}
+window.castRecoveryError=(event,error)=>capture(event,error);
+window.addEventListener('error',e=>{if(!window.castFullErrorHandler)capture('viewer-initialize',e.error||e.message||('资源加载失败：'+e.target?.tagName));},true);
+window.addEventListener('unhandledrejection',e=>{if(!window.castFullErrorHandler)capture('viewer-initialize-rejection',e.reason);});
+})();
+</script><script>(() => {
+  // work/cast-web-build/node_modules/@noble/hashes/utils.js
+  function isBytes(a) {
+    return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
+  }
+  function anumber(n, title = "") {
+    if (!Number.isSafeInteger(n) || n < 0) {
+      const prefix = title && `"${title}" `;
+      throw new Error(`${prefix}expected integer >= 0, got ${n}`);
+    }
+  }
+  function abytes(value, length, title = "") {
+    const bytes = isBytes(value);
+    const len = value?.length;
+    const needsLen = length !== void 0;
+    if (!bytes || needsLen && len !== length) {
+      const prefix = title && `"${title}" `;
+      const ofLen = needsLen ? ` of length ${length}` : "";
+      const got = bytes ? `length=${len}` : `type=${typeof value}`;
+      throw new Error(prefix + "expected Uint8Array" + ofLen + ", got " + got);
+    }
+    return value;
+  }
+  function aexists(instance, checkFinished = true) {
+    if (instance.destroyed)
+      throw new Error("Hash instance has been destroyed");
+    if (checkFinished && instance.finished)
+      throw new Error("Hash#digest() has already been called");
+  }
+  function aoutput(out, instance) {
+    abytes(out, void 0, "digestInto() output");
+    const min = instance.outputLen;
+    if (out.length < min) {
+      throw new Error('"digestInto() output" expected to be of length >=' + min);
+    }
+  }
+  function u8(arr) {
+    return new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+  }
+  function u32(arr) {
+    return new Uint32Array(arr.buffer, arr.byteOffset, Math.floor(arr.byteLength / 4));
+  }
+  function clean(...arrays) {
+    for (let i = 0; i < arrays.length; i++) {
+      arrays[i].fill(0);
+    }
+  }
+  function rotr(word, shift) {
+    return word << 32 - shift | word >>> shift;
+  }
+  var isLE = /* @__PURE__ */ (() => new Uint8Array(new Uint32Array([287454020]).buffer)[0] === 68)();
+  function byteSwap(word) {
+    return word << 24 & 4278190080 | word << 8 & 16711680 | word >>> 8 & 65280 | word >>> 24 & 255;
+  }
+  var swap8IfBE = isLE ? (n) => n : (n) => byteSwap(n);
+  function byteSwap32(arr) {
+    for (let i = 0; i < arr.length; i++) {
+      arr[i] = byteSwap(arr[i]);
+    }
+    return arr;
+  }
+  var swap32IfBE = isLE ? (u) => u : byteSwap32;
+  function createHasher(hashCons, info = {}) {
+    const hashC = (msg, opts) => hashCons(opts).update(msg).digest();
+    const tmp = hashCons(void 0);
+    hashC.outputLen = tmp.outputLen;
+    hashC.blockLen = tmp.blockLen;
+    hashC.create = (opts) => hashCons(opts);
+    Object.assign(hashC, info);
+    return Object.freeze(hashC);
+  }
+
+  // work/cast-web-build/node_modules/@noble/hashes/_md.js
+  var SHA256_IV = /* @__PURE__ */ Uint32Array.from([
+    1779033703,
+    3144134277,
+    1013904242,
+    2773480762,
+    1359893119,
+    2600822924,
+    528734635,
+    1541459225
+  ]);
+
+  // work/cast-web-build/node_modules/@noble/hashes/_u64.js
+  var U32_MASK64 = /* @__PURE__ */ BigInt(2 ** 32 - 1);
+  var _32n = /* @__PURE__ */ BigInt(32);
+  function fromBig(n, le = false) {
+    if (le)
+      return { h: Number(n & U32_MASK64), l: Number(n >> _32n & U32_MASK64) };
+    return { h: Number(n >> _32n & U32_MASK64) | 0, l: Number(n & U32_MASK64) | 0 };
+  }
+
+  // work/cast-web-build/node_modules/@noble/hashes/_blake.js
+  function G1s(a, b, c, d, x) {
+    a = a + b + x | 0;
+    d = rotr(d ^ a, 16);
+    c = c + d | 0;
+    b = rotr(b ^ c, 12);
+    return { a, b, c, d };
+  }
+  function G2s(a, b, c, d, x) {
+    a = a + b + x | 0;
+    d = rotr(d ^ a, 8);
+    c = c + d | 0;
+    b = rotr(b ^ c, 7);
+    return { a, b, c, d };
+  }
+
+  // work/cast-web-build/node_modules/@noble/hashes/blake2.js
+  var _BLAKE2 = class {
+    buffer;
+    buffer32;
+    finished = false;
+    destroyed = false;
+    length = 0;
+    pos = 0;
+    blockLen;
+    outputLen;
+    constructor(blockLen, outputLen) {
+      anumber(blockLen);
+      anumber(outputLen);
+      this.blockLen = blockLen;
+      this.outputLen = outputLen;
+      this.buffer = new Uint8Array(blockLen);
+      this.buffer32 = u32(this.buffer);
+    }
+    update(data) {
+      aexists(this);
+      abytes(data);
+      const { blockLen, buffer, buffer32 } = this;
+      const len = data.length;
+      const offset = data.byteOffset;
+      const buf = data.buffer;
+      for (let pos = 0; pos < len; ) {
+        if (this.pos === blockLen) {
+          swap32IfBE(buffer32);
+          this.compress(buffer32, 0, false);
+          swap32IfBE(buffer32);
+          this.pos = 0;
+        }
+        const take = Math.min(blockLen - this.pos, len - pos);
+        const dataOffset = offset + pos;
+        if (take === blockLen && !(dataOffset % 4) && pos + take < len) {
+          const data32 = new Uint32Array(buf, dataOffset, Math.floor((len - pos) / 4));
+          swap32IfBE(data32);
+          for (let pos32 = 0; pos + blockLen < len; pos32 += buffer32.length, pos += blockLen) {
+            this.length += blockLen;
+            this.compress(data32, pos32, false);
+          }
+          swap32IfBE(data32);
+          continue;
+        }
+        buffer.set(data.subarray(pos, pos + take), this.pos);
+        this.pos += take;
+        this.length += take;
+        pos += take;
+      }
+      return this;
+    }
+    digestInto(out) {
+      aexists(this);
+      aoutput(out, this);
+      const { pos, buffer32 } = this;
+      this.finished = true;
+      clean(this.buffer.subarray(pos));
+      swap32IfBE(buffer32);
+      this.compress(buffer32, 0, true);
+      swap32IfBE(buffer32);
+      const out32 = u32(out);
+      this.get().forEach((v, i) => out32[i] = swap8IfBE(v));
+    }
+    digest() {
+      const { buffer, outputLen } = this;
+      this.digestInto(buffer);
+      const res = buffer.slice(0, outputLen);
+      this.destroy();
+      return res;
+    }
+    _cloneInto(to) {
+      const { buffer, length, finished, destroyed, outputLen, pos } = this;
+      to ||= new this.constructor({ dkLen: outputLen });
+      to.set(...this.get());
+      to.buffer.set(buffer);
+      to.destroyed = destroyed;
+      to.finished = finished;
+      to.length = length;
+      to.pos = pos;
+      to.outputLen = outputLen;
+      return to;
+    }
+    clone() {
+      return this._cloneInto();
+    }
+  };
+  function compress(s, offset, msg, rounds, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15) {
+    let j = 0;
+    for (let i = 0; i < rounds; i++) {
+      ({ a: v0, b: v4, c: v8, d: v12 } = G1s(v0, v4, v8, v12, msg[offset + s[j++]]));
+      ({ a: v0, b: v4, c: v8, d: v12 } = G2s(v0, v4, v8, v12, msg[offset + s[j++]]));
+      ({ a: v1, b: v5, c: v9, d: v13 } = G1s(v1, v5, v9, v13, msg[offset + s[j++]]));
+      ({ a: v1, b: v5, c: v9, d: v13 } = G2s(v1, v5, v9, v13, msg[offset + s[j++]]));
+      ({ a: v2, b: v6, c: v10, d: v14 } = G1s(v2, v6, v10, v14, msg[offset + s[j++]]));
+      ({ a: v2, b: v6, c: v10, d: v14 } = G2s(v2, v6, v10, v14, msg[offset + s[j++]]));
+      ({ a: v3, b: v7, c: v11, d: v15 } = G1s(v3, v7, v11, v15, msg[offset + s[j++]]));
+      ({ a: v3, b: v7, c: v11, d: v15 } = G2s(v3, v7, v11, v15, msg[offset + s[j++]]));
+      ({ a: v0, b: v5, c: v10, d: v15 } = G1s(v0, v5, v10, v15, msg[offset + s[j++]]));
+      ({ a: v0, b: v5, c: v10, d: v15 } = G2s(v0, v5, v10, v15, msg[offset + s[j++]]));
+      ({ a: v1, b: v6, c: v11, d: v12 } = G1s(v1, v6, v11, v12, msg[offset + s[j++]]));
+      ({ a: v1, b: v6, c: v11, d: v12 } = G2s(v1, v6, v11, v12, msg[offset + s[j++]]));
+      ({ a: v2, b: v7, c: v8, d: v13 } = G1s(v2, v7, v8, v13, msg[offset + s[j++]]));
+      ({ a: v2, b: v7, c: v8, d: v13 } = G2s(v2, v7, v8, v13, msg[offset + s[j++]]));
+      ({ a: v3, b: v4, c: v9, d: v14 } = G1s(v3, v4, v9, v14, msg[offset + s[j++]]));
+      ({ a: v3, b: v4, c: v9, d: v14 } = G2s(v3, v4, v9, v14, msg[offset + s[j++]]));
+    }
+    return { v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15 };
+  }
+
+  // work/cast-web-build/node_modules/@noble/hashes/blake3.js
+  var B3_Flags = {
+    CHUNK_START: 1,
+    CHUNK_END: 2,
+    PARENT: 4,
+    ROOT: 8,
+    KEYED_HASH: 16,
+    DERIVE_KEY_CONTEXT: 32,
+    DERIVE_KEY_MATERIAL: 64
+  };
+  var B3_IV = /* @__PURE__ */ SHA256_IV.slice();
+  var B3_SIGMA = /* @__PURE__ */ (() => {
+    const Id = Array.from({ length: 16 }, (_, i) => i);
+    const permute = (arr) => [2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8].map((i) => arr[i]);
+    const res = [];
+    for (let i = 0, v = Id; i < 7; i++, v = permute(v))
+      res.push(...v);
+    return Uint8Array.from(res);
+  })();
+  var _BLAKE3 = class __BLAKE3 extends _BLAKE2 {
+    chunkPos = 0;
+    // Position of current block in chunk
+    chunksDone = 0;
+    // How many chunks we already have
+    flags = 0 | 0;
+    IV;
+    state;
+    stack = [];
+    // Output
+    posOut = 0;
+    bufferOut32 = new Uint32Array(16);
+    bufferOut;
+    chunkOut = 0;
+    // index of output chunk
+    enableXOF = true;
+    constructor(opts = {}, flags = 0) {
+      super(64, opts.dkLen === void 0 ? 32 : opts.dkLen);
+      const { key, context } = opts;
+      const hasContext = context !== void 0;
+      if (key !== void 0) {
+        if (hasContext)
+          throw new Error('Only "key" or "context" can be specified at same time');
+        abytes(key, 32, "key");
+        const k = key.slice();
+        this.IV = u32(k);
+        swap32IfBE(this.IV);
+        this.flags = flags | B3_Flags.KEYED_HASH;
+      } else if (hasContext) {
+        abytes(context, void 0, "context");
+        const ctx = context;
+        const contextKey = new __BLAKE3({ dkLen: 32 }, B3_Flags.DERIVE_KEY_CONTEXT).update(ctx).digest();
+        this.IV = u32(contextKey);
+        swap32IfBE(this.IV);
+        this.flags = flags | B3_Flags.DERIVE_KEY_MATERIAL;
+      } else {
+        this.IV = B3_IV.slice();
+        this.flags = flags;
+      }
+      this.state = this.IV.slice();
+      this.bufferOut = u8(this.bufferOut32);
+    }
+    // Unused
+    get() {
+      return [];
+    }
+    set() {
+    }
+    b2Compress(counter, flags, buf, bufPos = 0) {
+      const { state: s, pos } = this;
+      const { h, l } = fromBig(BigInt(counter), true);
+      const { v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15 } = compress(B3_SIGMA, bufPos, buf, 7, s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], B3_IV[0], B3_IV[1], B3_IV[2], B3_IV[3], h, l, pos, flags);
+      s[0] = v0 ^ v8;
+      s[1] = v1 ^ v9;
+      s[2] = v2 ^ v10;
+      s[3] = v3 ^ v11;
+      s[4] = v4 ^ v12;
+      s[5] = v5 ^ v13;
+      s[6] = v6 ^ v14;
+      s[7] = v7 ^ v15;
+    }
+    compress(buf, bufPos = 0, isLast = false) {
+      let flags = this.flags;
+      if (!this.chunkPos)
+        flags |= B3_Flags.CHUNK_START;
+      if (this.chunkPos === 15 || isLast)
+        flags |= B3_Flags.CHUNK_END;
+      if (!isLast)
+        this.pos = this.blockLen;
+      this.b2Compress(this.chunksDone, flags, buf, bufPos);
+      this.chunkPos += 1;
+      if (this.chunkPos === 16 || isLast) {
+        let chunk = this.state;
+        this.state = this.IV.slice();
+        for (let last, chunks = this.chunksDone + 1; isLast || !(chunks & 1); chunks >>= 1) {
+          if (!(last = this.stack.pop()))
+            break;
+          this.buffer32.set(last, 0);
+          this.buffer32.set(chunk, 8);
+          this.pos = this.blockLen;
+          this.b2Compress(0, this.flags | B3_Flags.PARENT, this.buffer32, 0);
+          chunk = this.state;
+          this.state = this.IV.slice();
+        }
+        this.chunksDone++;
+        this.chunkPos = 0;
+        this.stack.push(chunk);
+      }
+      this.pos = 0;
+    }
+    _cloneInto(to) {
+      to = super._cloneInto(to);
+      const { IV, flags, state, chunkPos, posOut, chunkOut, stack, chunksDone } = this;
+      to.state.set(state.slice());
+      to.stack = stack.map((i) => Uint32Array.from(i));
+      to.IV.set(IV);
+      to.flags = flags;
+      to.chunkPos = chunkPos;
+      to.chunksDone = chunksDone;
+      to.posOut = posOut;
+      to.chunkOut = chunkOut;
+      to.enableXOF = this.enableXOF;
+      to.bufferOut32.set(this.bufferOut32);
+      return to;
+    }
+    destroy() {
+      this.destroyed = true;
+      clean(this.state, this.buffer32, this.IV, this.bufferOut32);
+      clean(...this.stack);
+    }
+    // Same as b2Compress, but doesn't modify state and returns 16 u32 array (instead of 8)
+    b2CompressOut() {
+      const { state: s, pos, flags, buffer32, bufferOut32: out32 } = this;
+      const { h, l } = fromBig(BigInt(this.chunkOut++));
+      swap32IfBE(buffer32);
+      const { v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15 } = compress(B3_SIGMA, 0, buffer32, 7, s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], B3_IV[0], B3_IV[1], B3_IV[2], B3_IV[3], l, h, pos, flags);
+      out32[0] = v0 ^ v8;
+      out32[1] = v1 ^ v9;
+      out32[2] = v2 ^ v10;
+      out32[3] = v3 ^ v11;
+      out32[4] = v4 ^ v12;
+      out32[5] = v5 ^ v13;
+      out32[6] = v6 ^ v14;
+      out32[7] = v7 ^ v15;
+      out32[8] = s[0] ^ v8;
+      out32[9] = s[1] ^ v9;
+      out32[10] = s[2] ^ v10;
+      out32[11] = s[3] ^ v11;
+      out32[12] = s[4] ^ v12;
+      out32[13] = s[5] ^ v13;
+      out32[14] = s[6] ^ v14;
+      out32[15] = s[7] ^ v15;
+      swap32IfBE(buffer32);
+      swap32IfBE(out32);
+      this.posOut = 0;
+    }
+    finish() {
+      if (this.finished)
+        return;
+      this.finished = true;
+      clean(this.buffer.subarray(this.pos));
+      let flags = this.flags | B3_Flags.ROOT;
+      if (this.stack.length) {
+        flags |= B3_Flags.PARENT;
+        swap32IfBE(this.buffer32);
+        this.compress(this.buffer32, 0, true);
+        swap32IfBE(this.buffer32);
+        this.chunksDone = 0;
+        this.pos = this.blockLen;
+      } else {
+        flags |= (!this.chunkPos ? B3_Flags.CHUNK_START : 0) | B3_Flags.CHUNK_END;
+      }
+      this.flags = flags;
+      this.b2CompressOut();
+    }
+    writeInto(out) {
+      aexists(this, false);
+      abytes(out);
+      this.finish();
+      const { blockLen, bufferOut } = this;
+      for (let pos = 0, len = out.length; pos < len; ) {
+        if (this.posOut >= blockLen)
+          this.b2CompressOut();
+        const take = Math.min(blockLen - this.posOut, len - pos);
+        out.set(bufferOut.subarray(this.posOut, this.posOut + take), pos);
+        this.posOut += take;
+        pos += take;
+      }
+      return out;
+    }
+    xofInto(out) {
+      if (!this.enableXOF)
+        throw new Error("XOF is not possible after digest call");
+      return this.writeInto(out);
+    }
+    xof(bytes) {
+      anumber(bytes);
+      return this.xofInto(new Uint8Array(bytes));
+    }
+    digestInto(out) {
+      aoutput(out, this);
+      if (this.finished)
+        throw new Error("digest() was already called");
+      this.enableXOF = false;
+      this.writeInto(out);
+      this.destroy();
+      return out;
+    }
+    digest() {
+      return this.digestInto(new Uint8Array(this.outputLen));
+    }
+  };
+  var blake3 = /* @__PURE__ */ createHasher((opts = {}) => new _BLAKE3(opts));
+
+  // work/cast-fix-current/app/public-cast/viewer/browser-iroh.js
+  window.addEventListener("hashchange", () => location.reload());
+  if (location.hash.length > 1) {
+    const NativeWebSocket = window.WebSocket, enc = new TextEncoder(), dec = new TextDecoder();
+    const unhex = (s) => Uint8Array.from(s.match(/../g), (x) => parseInt(x, 16));
+    const concat = (...a) => {
+      const b = new Uint8Array(a.reduce((n, x) => n + x.length, 0));
+      let i = 0;
+      for (const x of a) {
+        b.set(x, i);
+        i += x.length;
+      }
+      return b;
+    };
+    const config = JSON.parse(dec.decode(Uint8Array.from(atob(location.hash.slice(1).replace(/-/g, "+").replace(/_/g, "/")), (x) => x.charCodeAt(0))));
+    window.CAST_IROH_CONFIG = config;
+    class CastSocket extends EventTarget {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      constructor(url) {
+        super();
+        this.url = url;
+        this.readyState = 0;
+        this.id = crypto.randomUUID();
+        this.seq = 0;
+        this.parts = /* @__PURE__ */ new Map();
+        this.chain = Promise.resolve();
+        this.outgoing = Promise.resolve();
+        this.started = performance.now();
+        void this.connect().catch((e) => this.fail(e));
+      }
+      emit(type, data) {
+        const e = type === "message" ? new MessageEvent(type, { data }) : new Event(type);
+        this.dispatchEvent(e);
+        this["on" + type]?.(e);
+      }
+      async connect() {
+        this.keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
+        this.pub = new Uint8Array(await crypto.subtle.exportKey("raw", this.keys.publicKey));
+        this.aes = await crypto.subtle.importKey("raw", unhex(config.key), "AES-GCM", false, ["encrypt", "decrypt"]);
+        const w = this.wire = new NativeWebSocket(config.relay.replace(/^http/, "ws") + "/relay", ["iroh-relay-v1"]);
+        w.binaryType = "arraybuffer";
+        w.onmessage = (e) => {
+          this.chain = this.chain.then(() => this.receive(new Uint8Array(e.data))).catch((e2) => this.fail(e2));
+        };
+        w.onerror = () => this.fail(Error("\u4E2D\u7EE7\u8FDE\u63A5\u5931\u8D25"));
+        w.onclose = () => this.finish();
+        this.timeout = setTimeout(() => this.fail(Error("\u4E2D\u7EE7\u8FDE\u63A5\u8D85\u65F6")), 18e3);
+      }
+      async receive(b) {
+        if (b[0] === 0) {
+          const hash = blake3(b.slice(1), { context: enc.encode("iroh-relay handshake v1 challenge signature") });
+          const sig = new Uint8Array(await crypto.subtle.sign("Ed25519", this.keys.privateKey, hash));
+          this.wire.send(concat(new Uint8Array([1]), this.pub, new Uint8Array([64]), sig));
+          return;
+        }
+        if (b[0] === 2) {
+          clearTimeout(this.timeout);
+          this.readyState = 1;
+          this.emit("open");
+          this.sendPacket({ type: "connect", id: this.id });
+          return;
+        }
+        if (b[0] === 9) {
+          this.wire.send(concat(new Uint8Array([10]), b.slice(1)));
+          return;
+        }
+        if (b[0] !== 6 || b.length < 50) return;
+        if (!b.slice(1, 33).every((n, i2) => n === unhex(config.peerKey)[i2])) return;
+        const p = b.slice(34), key = Array.from(p.slice(0, 12)).join(","), v = new DataView(p.buffer, p.byteOffset), i = v.getUint16(12), total = v.getUint16(14);
+        if (!total || total > 128 || i >= total) throw Error("\u4E2D\u7EE7\u5206\u7247\u65E0\u6548");
+        let part = this.parts.get(key);
+        if (!part) {
+          part = { at: performance.now(), chunks: /* @__PURE__ */ new Map(), total };
+          this.parts.set(key, part);
+        }
+        part.chunks.set(i, p.slice(16));
+        for (const [k, x] of this.parts) if (performance.now() - x.at > 1e4) this.parts.delete(k);
+        if (part.chunks.size !== part.total) return;
+        this.parts.delete(key);
+        const bytes = concat(...Array.from({ length: total }, (_, j) => part.chunks.get(j)));
+        let plain;
+        try {
+          plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.slice(0, 12), additionalData: enc.encode("far") }, this.aes, bytes.slice(12));
+        } catch (e) {
+          window.castRecoveryError?.("iroh-packet-decode", e);
+          return;
+        }
+        const m = JSON.parse(dec.decode(plain));
+        if (m.id !== this.id || !Number.isSafeInteger(m.sequence) || m.sequence <= (this.lastSequence || 0)) return;
+        this.lastSequence = m.sequence;
+        if (m.type === "data") this.emit("message", m.data);
+        else if (m.type === "close" || m.type === "error") this.fail(Error(m.error || "\u8FDC\u7AEF\u8FDE\u63A5\u5173\u95ED"));
+      }
+      send(data) {
+        if (this.readyState !== 1) throw Error("\u6295\u5C4F\u8FDE\u63A5\u5C1A\u672A\u5C31\u7EEA");
+        this.sendPacket({ type: "data", id: this.id, data });
+      }
+      sendPacket(m) {
+        this.outgoing = this.outgoing.then(async () => {
+          if (this.readyState !== 1) return;
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const data = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: enc.encode("near") }, this.aes, enc.encode(JSON.stringify({ ...m, sequence: ++this.seq }))));
+          const bytes = concat(iv, data), packetId = crypto.getRandomValues(new Uint8Array(12)), total = Math.ceil(bytes.length / 6e4);
+          for (let i = 0; i < total; i++) {
+            const h = new Uint8Array(16);
+            h.set(packetId);
+            const view = new DataView(h.buffer);
+            view.setUint16(12, i);
+            view.setUint16(14, total);
+            this.wire.send(concat(new Uint8Array([4]), unhex(config.peerKey), new Uint8Array([0]), h, bytes.slice(i * 6e4, (i + 1) * 6e4)));
+          }
+        }).catch((e) => this.fail(e));
+      }
+      fail(e) {
+        window.castRecoveryError?.("iroh-transport", e);
+        this.emit("error");
+        this.close();
+      }
+      finish() {
+        clearTimeout(this.timeout);
+        if (this.readyState === 3) return;
+        this.readyState = 3;
+        this.emit("close");
+      }
+      close() {
+        if (this.readyState === 3) return;
+        this.readyState = 2;
+        this.wire?.close();
+        this.finish();
+      }
+    }
+    window.WebSocket = CastSocket;
+  } else {
+    document.body.innerHTML = "<main><p>\u8BF7\u4F7F\u7528\u72EC\u7ACB\u76D8\u7BA1\u7406\u5668\u751F\u6210\u7684\u5B8C\u6574\u6295\u5C4F\u94FE\u63A5\u3002</p></main>";
+  }
+})();
+/*! Bundled license information:
+
+@noble/hashes/utils.js:
+  (*! noble-hashes - MIT License (c) 2022 Paul Miller (paulmillr.com) *)
+*/
+</script><script>// Fragment large JPEG messages; control messages use a separate reliable channel.
+function rtcWrite(channel,value){if(channel?.readyState!=='open'||channel.bufferedAmount>262144)return false;const s=JSON.stringify(value);if(s.length<24000){channel.send(s);return true}const id=crypto.randomUUID(),n=Math.ceil(s.length/24000);for(let i=0;i<n;i++)channel.send('~'+id+':'+i+':'+n+':'+s.slice(i*24000,(i+1)*24000));return true}
+function rtcReader(callback){const parts=new Map();return raw=>{try{if(raw[0]!=='~'){callback(JSON.parse(raw));return}const m=/^~([^:]+):(\d+):(\d+):([\s\S]*)$/.exec(raw);if(!m)return;const [,id,index,total,text]=m,n=+total,i=+index;if(n>100||i>=n)return;let p=parts.get(id);if(!p){p={data:[],count:0,time:performance.now()};parts.set(id,p)}if(p.data[i]===undefined){p.data[i]=text;p.count++}if(p.count===n){parts.delete(id);callback(JSON.parse(p.data.join('')))}for(const[k,v]of parts)if(performance.now()-v.time>2000)parts.delete(k);}catch{}}}
+</script><script>
+if(window.CAST_IROH_CONFIG){
+const canvas=document.querySelector('#screen'),ctx=canvas.getContext('2d',{alpha:false,desynchronized:true}),status=document.querySelector('#status'),stats=document.querySelector('#stats'),control=document.querySelector('#control'),keyboard=document.querySelector('#keyboard'),hint=document.querySelector('#hint');
+function fitCanvas(){const main=document.querySelector('main'),w=Math.max(1,main.clientWidth-20),h=Math.max(1,main.clientHeight-20),ratio=canvas.width/canvas.height,fw=Math.min(w,h*ratio);canvas.style.width=fw+'px';canvas.style.height=(fw/ratio)+'px';}new ResizeObserver(fitCanvas).observe(document.querySelector('main'));
+const baseURL=location.origin+'/';let streamEpoch=null,lastFrameSeq=0;let connectionGeneration=0;let netMode='tunnel';let ws,inputSocket,pc,rtcControl,rtcVideo,rtcReady=false,preferControl=true,mine=false,remoteWidth=0,remoteHeight=0,count=0,inputId=0,composing=false,lastMove=0,painted=0,rtt=null;
+const media=document.createElement('video');media.autoplay=true;media.muted=true;media.playsInline=true;media.style.cssText='position:fixed;pointer-events:none;object-fit:fill;z-index:1;opacity:0;';document.body.append(media);document.querySelector('#empty').style.zIndex='3';canvas.style.position='relative';canvas.style.zIndex='2';let frameMeta=null,videoFrames=0;
+let sourceConnected=false,haveFrame=false,lastTransportAt=performance.now(),connectingAt=performance.now(),lastRenderedAt=0;
+const environmentNumber=window.CAST_IROH_CONFIG?.number;
+if(environmentNumber){document.querySelector('#environment-title').textContent='环境 '+environmentNumber+' · 浏览器投屏';document.title='环境 '+environmentNumber+' · 浏览器投屏';}
+function markDisconnected(reason='连接已断开'){
+ sourceConnected=false;document.documentElement.dataset.connection='disconnected';document.querySelector('main').classList.add('disconnected');
+ const empty=document.querySelector('#empty');empty.hidden=false;empty.textContent='已断开 · '+reason;
+ media.style.opacity='0';status.style.color='#ff9d9d';status.textContent='● 已断开 · '+reason;mine=false;control.disabled=true;control.classList.remove('on');control.textContent='已断开';hint.textContent='连接恢复前不能操作';
+}
+function markConnected(){
+ if(!sourceConnected||!haveFrame)return;const firstReady=document.documentElement.dataset.connection!=='connected';document.documentElement.dataset.connection='connected';document.querySelector('main').classList.remove('disconnected');document.querySelector('#empty').hidden=true;status.style.color='#66dbad';control.disabled=false;hint.textContent='点击画面操作 · 支持中文输入';if(firstReady&&preferControl)send({type:'claim'});
+}
+function acceptHealth(online,message){lastTransportAt=performance.now();if(!online){markDisconnected(message||'远端浏览器不可用');return;}const was=sourceConnected;sourceConnected=true;markConnected();if(!was&&haveFrame&&preferControl)send({type:'claim'});}
+
+const clientErrorKey='cast-errors:'+location.pathname;let clientErrors=[];try{clientErrors=JSON.parse(localStorage.getItem(clientErrorKey)||'[]')}catch(e){console.error('投屏错误队列读取失败',e)}
+function persistErrors(){try{localStorage.setItem(clientErrorKey,JSON.stringify(clientErrors))}catch(e){console.error('投屏错误队列保存失败',e);hint.textContent='错误日志暂存失败：'+e.message}}
+window.castFullErrorHandler=true;function reportError(event,error){const message=String(error?.message||error||event).replace(/(?:https?|wss?):\/\/[^\s"']+/g,'[url]');clientErrors.push({type:'clientError',id:crypto.randomUUID(),event,message});persistErrors();flushErrors()}
+window.castRecoveryError=(event,error)=>reportError(event,error);window.castRecoveryIsOnline=()=>sourceConnected&&haveFrame&&performance.now()-lastTransportAt<6500;function flushErrors(){if(ws?.readyState!==1&&!activeRTC())return;for(const row of clientErrors)send(row)}
+window.addEventListener('error',e=>reportError('uncaught-error',e.error||e.message));window.addEventListener('unhandledrejection',e=>reportError('unhandled-rejection',e.reason));
+let lastProofAt=performance.now(),lastProofSentAt=0;const frameProofs=new Map();
+function confirmFrameProof(){for(const[id,p]of frameProofs){if(p.epoch===streamEpoch&&lastFrameSeq>=p.seq){lastProofAt=performance.now();frameProofs.delete(id)}}}
+function placeMedia(){const r=canvas.getBoundingClientRect();Object.assign(media.style,{left:r.left+'px',top:r.top+'px',width:r.width+'px',height:r.height+'px'});}
+new ResizeObserver(placeMedia).observe(canvas);
+function videoFrame(){media.requestVideoFrameCallback(videoFrame);const m=frameMeta;if(!m||m.epoch!==streamEpoch||!media.videoWidth||Math.abs(media.videoWidth-m.imageWidth)>2||Math.abs(media.videoHeight-m.imageHeight)>2)return;
+ if(canvas.width!==m.imageWidth||canvas.height!==m.imageHeight){canvas.width=m.imageWidth;canvas.height=m.imageHeight;fitCanvas();placeMedia();}remoteWidth=m.width||m.imageWidth;remoteHeight=m.height||m.imageHeight;ctx.drawImage(media,0,0,canvas.width,canvas.height);checkProbe();lastFrameSeq=Math.max(lastFrameSeq,m.seq);haveFrame=true;lastRenderedAt=performance.now();markConnected();painted++;videoFrames++;count++;document.documentElement.dataset.frames=painted;document.querySelector('#empty').hidden=!sourceConnected;media.style.opacity=sourceConnected?'1':'0';canvas.style.opacity='0';send({type:'ack',seq:m.seq,epoch:m.epoch});}
+media.requestVideoFrameCallback(videoFrame);
+function activeRTC(){return !!(pc?.connectionState==='connected'&&rtcControl?.readyState==='open'&&rtcVideo?.readyState==='open')}
+function send(m){rtcReady=activeRTC();if(rtcReady&&rtcWrite(rtcControl,m))return;if(ws?.readyState===1)ws.send(JSON.stringify(m))}
+let lastPongAt=performance.now();let clockOffset=0,minClockRtt=Infinity,currentFrameTransit=0,currentCaptureAge=0;const stageSamples=[];const probeTimes=new Map(),visualLatencies=[];const inputTimes=new Map(),latencies=[];window.castDiagnostics={latencies,visualLatencies,stageSamples,probe(){const id=++inputId;probeTimes.set(id,performance.now());send({type:"probe",id});},get transport(){return netMode==='local'?'local':activeRTC()?"webrtc":"websocket"},get pc(){return pc}};function act(m){if(mine){const id=++inputId;inputTimes.set(id,performance.now());send({type:'input',id,epoch:streamEpoch,...m});return id}}
+function setControl(m){mine=!!m.mine&&sourceConnected&&haveFrame;control.classList.toggle('on',mine);control.textContent=mine?'释放控制':m.active?'其他窗口控制中':'启用控制';control.disabled=!sourceConnected||!haveFrame||(!!m.active&&!mine);hint.textContent=mine?'点击画面操作 · 支持中文输入':'连接后默认启用控制';}
+function checkProbe(){if(!probeTimes.size||canvas.width<288)return;const scale=canvas.width/(remoteWidth||canvas.width);function pixel(x){return ctx.getImageData(Math.floor(x*scale),Math.max(1,Math.floor(8*scale)),1,1).data}const a=pixel(264),b=pixel(280);if(!(a[0]>170&&a[1]<100&&a[2]>170&&b[0]<100&&b[1]>170&&b[2]>170))return;let code=0;for(let i=0;i<16;i++){const p=pixel(16*i+8);if(p[0]+p[1]+p[2]>384)code|=1<<i}for(const[id,start]of probeTimes)if((id%1000)+1===code){probeTimes.delete(id);requestAnimationFrame(()=>{const ms=performance.now()-start;visualLatencies.push(ms);stageSamples.push({total:ms});if(stageSamples.length>300)stageSamples.shift();if(visualLatencies.length>300)visualLatencies.shift();send({type:'measurement',values:{kind:'inputToPaint',ms:Math.round(ms),transport:netMode==='local'?'local':rtcReady?'webrtc':'websocket'}})});}}
+async function draw(m){try{if(m.epoch&&m.epoch!==streamEpoch)return;const raw=Uint8Array.fromBase64?Uint8Array.fromBase64(m.data):Uint8Array.from(atob(m.data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([raw],{type:'image/jpeg'}));if((m.epoch&&m.epoch!==streamEpoch)||(m.type==='frame'&&m.seq<=lastFrameSeq)){image.close();return;}if(canvas.width!==image.width||canvas.height!==image.height){canvas.width=image.width;canvas.height=image.height;fitCanvas();}remoteWidth=m.width||image.width;remoteHeight=m.height||image.height;ctx.drawImage(image,0,0);if(m.type==='frame'){lastFrameSeq=m.seq;send({type:'framePainted',seq:m.seq,epoch:m.epoch});}image.close();checkProbe();haveFrame=true;lastRenderedAt=performance.now();markConnected();count++;painted++;confirmFrameProof();document.documentElement.dataset.frames=painted;if(sourceConnected){status.style.color='#66dbad';status.textContent='● 已连接 · '+(rtt===null?'测量延迟中':`控制往返 ${rtt} ms`);}}finally{send({type:'ack',seq:m.seq,epoch:m.epoch})}}
+function onMessage(m){if(m.logging)document.querySelector('#logging-fault').textContent=m.logging.fault?'错误日志暂时无法保存，正在恢复':'';
+ if(m.type==='clientErrorAck'){if(m.logging?.fault){hint.textContent='后端日志保存失败：'+m.logging.fault.message;return;}clientErrors=clientErrors.filter(x=>x.id!==m.id);persistErrors();return;}
+ if(m.type==='frameProof'){frameProofs.set(m.id,m);confirmFrameProof();return;}
+ if(m.type==='sourceStatus'){acceptHealth(m.online,m.message);return;}
+ if(m.type==='error'){markDisconnected(m.message||'远端连接错误');return;}
+
+ if(m.type==='frameMeta'){frameMeta=m;media.style.opacity=sourceConnected?'1':'0';canvas.style.opacity='0';return;}
+ else if(m.type==='sourceChanged'){frameMeta=null;media.style.opacity='0';canvas.style.opacity='1';streamEpoch=m.epoch;lastFrameSeq=0;remoteWidth=0;remoteHeight=0;ctx.clearRect(0,0,canvas.width,canvas.height);document.querySelector('#empty').hidden=false;}
+ else if(m.type==='tabs'){const bar=document.querySelector('#tabs');const key=JSON.stringify(m);if(bar.dataset.key!==key){bar.dataset.key=key;bar.replaceChildren(...m.tabs.map(t=>{const b=document.createElement('button');b.textContent=t.title||t.url||'新标签页';b.title=t.url;b.classList.toggle('selected',t.id===m.selected);b.onclick=()=>send({type:'switchTab',id:t.id});return b;}));}}
+ else if(m.type==='frame'){media.style.opacity='0';canvas.style.opacity='1';currentFrameTransit=m.serverTime?performance.now()-m.serverTime-clockOffset:0;currentCaptureAge=m.captureAgeMs||0;draw(m).catch(e=>reportError('frame-draw',e));}
+ else if(m.type==='probeFrame'){draw(m).then(()=>new Promise(r=>requestAnimationFrame(r))).then(()=>{const t=probeTimes.get(m.probeId);if(t!==undefined){probeTimes.delete(m.probeId);const ms=performance.now()-t;visualLatencies.push(ms);stageSamples.push({total:ms});if(stageSamples.length>300)stageSamples.shift();if(visualLatencies.length>300)visualLatencies.shift();send({type:'measurement',values:{kind:'inputToPaint',ms:Math.round(ms),transport:netMode==='local'?'local':rtcReady?'webrtc':'websocket'}});}}).catch(e=>reportError('viewer-async',e));}
+ else if(m.type==='pong'){acceptHealth(m.sourceOnline!==false,m.message);lastPongAt=performance.now();rtt=Math.round(performance.now()-m.sent);if(m.serverTime&&rtt<minClockRtt){minClockRtt=rtt;clockOffset=(performance.now()+m.sent)/2-m.serverTime;}document.documentElement.dataset.rtt=rtt;if(sourceConnected&&haveFrame)status.textContent='● 已连接 · '+(netMode==='local'?'本机直连':rtcReady?'WebRTC 直连':'加密中继')+' · 往返 '+rtt+' ms';send({type:'measurement',values:{kind:'rtt',ms:rtt,transport:netMode==='local'?'local':rtcReady?'webrtc':'websocket'}});}
+ else if(m.type==='inputAck'){const start=inputTimes.get(m.id);if(start!==undefined){const ms=performance.now()-start;inputTimes.delete(m.id);latencies.push(ms);if(latencies.length>300)latencies.shift();send({type:'measurement',values:{kind:'inputAck',ms:Math.round(ms),transport:netMode==='local'?'local':rtcReady?'webrtc':'websocket'}});}}
+ else if(m.type==='control')setControl(m);
+ else if(m.type==='error'){status.textContent=m.message;status.style.color='#ffc57d';}
+ else if(m.type==='hello'){lastProofAt=performance.now();lastProofSentAt=0;frameProofs.clear();haveFrame=false;acceptHealth(!!m.sourceOnline);if(m.number!==undefined){document.title='环境 '+m.number+' · 浏览器投屏';document.querySelector('#environment-title').textContent=document.title;}streamEpoch=m.epoch;lastFrameSeq=0;document.querySelector('#tabs').replaceChildren();delete document.querySelector('#tabs').dataset.key;control.disabled=true;send({type:'visibility',visible:document.visibilityState==='visible'});send({type:'tabsRequest'});if(preferControl)send({type:'claim'});if(netMode!=='local')beginRTC();}
+ else if(m.type==='signal'){signal(m).catch(e=>reportError('viewer-async',e))}
+ else if(m.type==='rtcAvailable'){if(netMode!=='local'&&!rtcReady)beginRTC();}
+ else if(m.type==='rtcFallback'){rtcReady=false;document.documentElement.dataset.transport='websocket';}
+}
+let iceQueue=[],offerSent=false,lastRtcAttempt=0;
+async function beginRTC(){if(window.CAST_IROH_CONFIG)return;lastRtcAttempt=performance.now();if(pc)pc.close();rtcReady=false;offerSent=false;iceQueue=[];remoteIce=[];lastPongAt=performance.now();pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.cloudflare.com:3478'},{urls:'stun:stun.l.google.com:19302'}],iceCandidatePoolSize:1});pc.addTransceiver('video',{direction:'recvonly'});pc.ontrack=e=>{media.srcObject=e.streams[0]||new MediaStream([e.track]);try{if('jitterBufferTarget'in e.receiver)e.receiver.jitterBufferTarget=0;if('playoutDelayHint'in e.receiver)e.receiver.playoutDelayHint=0;}catch(e){reportError('rtc-playout-options',e)}media.play().catch(e=>reportError('viewer-async',e));};rtcControl=pc.createDataChannel('control',{ordered:true});rtcVideo=pc.createDataChannel('video',{ordered:false,maxRetransmits:0});const reader=rtcReader(onMessage,e=>reportError('rtc-message',e));for(const ch of [rtcControl,rtcVideo]){ch.onmessage=e=>reader(e.data);ch.onopen=()=>{if(rtcControl.readyState==='open'&&rtcVideo.readyState==='open'){rtcReady=true;document.documentElement.dataset.transport='webrtc';send({type:'ping',sent:performance.now()});if(preferControl)send({type:'claim'})}};ch.onclose=()=>{rtcReady=false;document.documentElement.dataset.transport='websocket'}}pc.onicecandidate=e=>{if(e.candidate){const m={type:'signal',candidate:e.candidate.toJSON()};if(offerSent&&ws.readyState===1)ws.send(JSON.stringify(m));else iceQueue.push(m)}};pc.onconnectionstatechange=()=>{if(['failed','closed'].includes(pc.connectionState)){rtcReady=false;document.documentElement.dataset.transport='websocket'}};await pc.setLocalDescription(await pc.createOffer());ws.send(JSON.stringify({type:'signal',description:pc.localDescription.toJSON()}));offerSent=true;for(const m of iceQueue)ws.send(JSON.stringify(m));iceQueue=[];}
+let remoteIce=[];async function signal(m){if(!pc)return;if(m.description){await pc.setRemoteDescription(m.description);for(const c of remoteIce)await pc.addIceCandidate(c);remoteIce=[]}else if(m.candidate){if(pc.remoteDescription)await pc.addIceCandidate(m.candidate);else remoteIce.push(m.candidate)}}
+let forcedRecoveryTimer;function recoverTransport(message){if(forcedRecoveryTimer)return;markDisconnected(message);const old=ws;ws=null;inputSocket=null;connectionGeneration++;pc?.close();rtcReady=false;haveFrame=false;lastTransportAt=performance.now();old?.close();forcedRecoveryTimer=setTimeout(()=>{forcedRecoveryTimer=null;connect()},1500)}
+function connect(){
+ connectingAt=performance.now();
+ const generation=++connectionGeneration;
+ const urls=[{url:baseURL.replace(/^http/,'ws')+'stream',mode:'tunnel'}];
+ if(!window.CAST_IROH_CONFIG&&new URL(location.href).searchParams.get('transport')!=='webrtc')for(const port of [18766,18768])urls.push({url:'ws://127.0.0.1:'+port+new URL(baseURL).pathname+'stream',mode:'local'});
+ const sockets=[];let selected=null,retryTimer;
+ function retry(){if(!retryTimer)retryTimer=setTimeout(connect,1500)}
+ for(const endpoint of urls){let socket;try{socket=new WebSocket(endpoint.url)}catch(e){reportError('viewer-connect',e);continue}sockets.push(socket);
+  socket.onmessage=e=>{if(generation!==connectionGeneration)return;let m;try{m=JSON.parse(e.data)}catch(error){reportError('viewer-message',error);return}
+   if(m.type==='hello'&&(!selected||(netMode==='tunnel'&&endpoint.mode==='local'))){if(retryTimer){clearTimeout(retryTimer);retryTimer=null}const old=selected;selected=socket;ws=socket;inputSocket=socket;netMode=endpoint.mode;rtcReady=false;pc?.close();if(old)old.close();for(const other of sockets)if(other!==socket&&(endpoint.mode==='local'||other.url.startsWith('wss:')))other.close();document.documentElement.dataset.transport=netMode;onMessage(m);return;}
+   if(selected===socket)onMessage(m);
+  };
+  socket.onclose=()=>{if(generation!==connectionGeneration)return;if(selected===socket){selected=null;if(activeRTC()){
+     status.textContent='● WebRTC 直连 · 信令稍后恢复';
+     const watch=setInterval(()=>{if(generation!==connectionGeneration){clearInterval(watch);return;}if(activeRTC())return;clearInterval(watch);mine=false;control.disabled=true;retry();},250);
+    }else{rtcReady=false;pc?.close();mine=false;control.disabled=true;markDisconnected('公网连接中断，正在恢复');retry()}}else if(!selected&&sockets.every(s=>s.readyState>=2)){markDisconnected('公网连接失败，正在恢复');retry()}};socket.onerror=()=>{if(generation!==connectionGeneration)return;if(!selected)markDisconnected('公网连接失败');};
+ }
+ setTimeout(()=>{if(generation===connectionGeneration&&!selected&&!activeRTC()){for(const s of sockets)s.close();retry()}},35000);
+}
+
+control.onclick=()=>{preferControl=!mine;send({type:mine?'release':'claim'})};document.querySelector('#full').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
+function mods(e){return(e.altKey?1:0)|(e.ctrlKey?2:0)|(e.metaKey?4:0)|(e.shiftKey?8:0)}
+function position(e){const r=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(remoteWidth,(e.clientX-r.left)/r.width*remoteWidth)),y:Math.max(0,Math.min(remoteHeight,(e.clientY-r.top)/r.height*remoteHeight))}}
+function mouse(e,type){const buttons=['left','middle','right'];act({kind:'mouse',params:{type,...position(e),button:type==='mouseMoved'?(e.buttons&1?'left':e.buttons&2?'right':e.buttons&4?'middle':'none'):buttons[e.button]||'none',buttons:e.buttons,clickCount:Math.min(2,e.detail||1),modifiers:mods(e)}})}
+canvas.onpointerdown=e=>{if(!mine)return;e.preventDefault();keyboard.focus({preventScroll:true});canvas.setPointerCapture(e.pointerId);mouse(e,'mousePressed')};canvas.onpointerup=e=>{if(!mine)return;e.preventDefault();mouse(e,'mouseReleased')};canvas.onpointermove=e=>{if(!mine||performance.now()-lastMove<25)return;lastMove=performance.now();mouse(e,'mouseMoved')};canvas.oncontextmenu=e=>{if(mine)e.preventDefault()};canvas.addEventListener('wheel',e=>{if(!mine)return;e.preventDefault();const factor=e.deltaMode===1?16:e.deltaMode===2?remoteHeight:1;act({kind:'mouse',params:{type:'mouseWheel',...position(e),deltaX:e.deltaX*factor,deltaY:e.deltaY*factor,modifiers:mods(e)}})},{passive:false});
+const vk={Backspace:8,Tab:9,Enter:13,Shift:16,Control:17,Alt:18,Escape:27,PageUp:33,PageDown:34,End:35,Home:36,ArrowLeft:37,ArrowUp:38,ArrowRight:39,ArrowDown:40,Insert:45,Delete:46,Meta:91,F1:112,F2:113,F3:114,F4:115,F5:116,F6:117,F7:118,F8:119,F9:120,F10:121,F11:122,F12:123};
+function key(e,type){if(!mine||composing||e.isComposing||e.key==='Process'||e.keyCode===229)return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='v')return;const shortcut=e.ctrlKey||e.metaKey||e.altKey;if(vk[e.key]||shortcut){e.preventDefault();act({kind:'key',params:{type,key:e.key,code:e.code,windowsVirtualKeyCode:vk[e.key]||e.keyCode,modifiers:mods(e),autoRepeat:e.repeat}})}}
+// Commit text once. Pre-edit strings remain local until the IME commits them.
+let compositionCommit=null,ignoreNextInput=null;
+function commitText(text){if(mine&&typeof text==='string'&&text.length)act({kind:'text',text});}
+function clearLocalInput(){keyboard.value='';}
+function finishComposition(e){
+ const text=typeof e.data==='string'?e.data:'';
+ composing=false;compositionCommit=text;ignoreNextInput=null;
+ commitText(text);
+ // Do not reset the editing host while the IME is still dispatching its commit.
+ setTimeout(()=>{if(!composing)clearLocalInput()},0);
+}
+keyboard.onkeydown=e=>{if(!e.isComposing&&e.keyCode!==229&&!composing){compositionCommit=null;ignoreNextInput=null}key(e,'rawKeyDown')};
+keyboard.onkeyup=e=>key(e,'keyUp');
+keyboard.addEventListener('compositionstart',()=>{composing=true;compositionCommit=null;ignoreNextInput=null;});
+keyboard.addEventListener('compositionend',finishComposition);
+keyboard.onbeforeinput=e=>{
+ const type=e.inputType||'';
+ if(e.isComposing||type==='insertCompositionText'){if(compositionCommit===null)composing=true;return;}
+ if(type==='insertFromComposition'||(compositionCommit!==null&&e.data===compositionCommit)){
+  if(e.cancelable)e.preventDefault();ignoreNextInput=e.data;clearLocalInput();return;
+ }
+ if(composing)return;
+ if(type==='insertText'&&typeof e.data==='string'&&e.cancelable){e.preventDefault();ignoreNextInput=e.data;commitText(e.data);clearLocalInput();}
+};
+keyboard.oninput=e=>{
+ const type=e.inputType||'';
+ if(e.isComposing||composing||type==='insertCompositionText')return;
+ if(type==='insertFromComposition'||(compositionCommit!==null&&e.data===compositionCommit)){clearLocalInput();return;}
+ if(ignoreNextInput!==null&&e.data===ignoreNextInput){ignoreNextInput=null;clearLocalInput();return;}
+ // Use this event's committed delta, never resend the accumulated textarea value.
+ if(type==='insertText'&&typeof e.data==='string')commitText(e.data);
+ clearLocalInput();
+};
+keyboard.onpaste=e=>{if(!mine)return;e.preventDefault();compositionCommit=null;ignoreNextInput=null;composing=false;commitText(e.clipboardData.getData('text/plain'));clearLocalInput();};
+keyboard.addEventListener('blur',()=>{composing=false;compositionCommit=null;ignoreNextInput=null;clearLocalInput();});
+
+document.addEventListener('visibilitychange',()=>send({type:'visibility',visible:document.visibilityState==='visible'}));
+window.addEventListener('blur',()=>{if(mine)send({type:'resetKeys'})});window.addEventListener('focus',()=>{if(preferControl)send({type:'claim'})});
+setInterval(()=>{rtcReady=activeRTC();if(netMode!=='local'&&!rtcReady&&ws?.readyState===1&&performance.now()-lastRtcAttempt>45000)beginRTC().catch(e=>reportError('viewer-async',e));if(activeRTC()&&performance.now()-lastPongAt>6000){pc?.close();rtcReady=false;}if(inputSocket?.readyState===1||activeRTC())send({type:'ping',sent:performance.now()});if(performance.now()-lastTransportAt>6500){markDisconnected('超过 6 秒未收到连接确认');if(ws?.readyState===1||activeRTC())recoverTransport('连接确认超时，正在恢复');}else if(!haveFrame&&performance.now()-connectingAt>10000){markDisconnected('未收到远端画面');}if(haveFrame&&performance.now()-lastProofSentAt>4000){lastProofSentAt=performance.now();send({type:'frameProbe',id:crypto.randomUUID()});}if(haveFrame&&performance.now()-lastProofAt>12000){markDisconnected('画面确认超时，正在恢复');reportError('frame-proof-timeout','画面确认超时');recoverTransport('画面确认超时，正在恢复');lastProofAt=performance.now();}flushErrors();stats.textContent=`${netMode==='local'?'本机直连':rtcReady?'WebRTC':'加密中继'} · ${count} 帧/秒 · 已绘制 ${painted} 帧`;count=0},1000);connect();
+
+}
+</script></body></html>
