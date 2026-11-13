@@ -478,7 +478,7 @@ window.addEventListener('unhandledrejection',e=>{if(!window.castFullErrorHandler
       async connect() {
         this.keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
         this.pub = new Uint8Array(await crypto.subtle.exportKey("raw", this.keys.publicKey));
-        this.aes = await crypto.subtle.importKey("raw", unhex(config.key), "AES-GCM", false, ["encrypt", "decrypt"]);
+        this.mac = await crypto.subtle.importKey("raw", unhex(config.key), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
         const w = this.wire = new NativeWebSocket(config.relay.replace(/^http/, "ws") + "/relay", ["iroh-relay-v1"]);
         w.binaryType = "arraybuffer";
         w.onmessage = (e) => {
@@ -509,7 +509,7 @@ window.addEventListener('unhandledrejection',e=>{if(!window.castFullErrorHandler
         if (b[0] !== 6 || b.length < 50) return;
         if (!b.slice(1, 33).every((n, i2) => n === unhex(config.peerKey)[i2])) return;
         const p = b.slice(34), key = Array.from(p.slice(0, 12)).join(","), v = new DataView(p.buffer, p.byteOffset), i = v.getUint16(12), total = v.getUint16(14);
-        if (!total || total > 128 || i >= total) throw Error("\u4E2D\u7EE7\u5206\u7247\u65E0\u6548");
+        if (!total || total > 512 || i >= total) throw Error("\u4E2D\u7EE7\u5206\u7247\u65E0\u6548");
         let part = this.parts.get(key);
         if (!part) {
           part = { at: performance.now(), chunks: /* @__PURE__ */ new Map(), total };
@@ -522,7 +522,8 @@ window.addEventListener('unhandledrejection',e=>{if(!window.castFullErrorHandler
         const bytes = concat(...Array.from({ length: total }, (_, j) => part.chunks.get(j)));
         let plain;
         try {
-          plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.slice(0, 12), additionalData: enc.encode("far") }, this.aes, bytes.slice(12));
+          if (bytes.length < 32 || !await crypto.subtle.verify("HMAC", this.mac, bytes.slice(0, 32), concat(enc.encode("far"), bytes.slice(32)))) throw Error("Relay authentication failed");
+          plain = bytes.slice(32);
         } catch (e) {
           window.castRecoveryError?.("iroh-packet-decode", e);
           return;
@@ -540,9 +541,9 @@ window.addEventListener('unhandledrejection',e=>{if(!window.castFullErrorHandler
       sendPacket(m) {
         this.outgoing = this.outgoing.then(async () => {
           if (this.readyState !== 1) return;
-          const iv = crypto.getRandomValues(new Uint8Array(12));
-          const data = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: enc.encode("near") }, this.aes, enc.encode(JSON.stringify({ ...m, sequence: ++this.seq }))));
-          const bytes = concat(iv, data), packetId = crypto.getRandomValues(new Uint8Array(12)), total = Math.ceil(bytes.length / 6e4);
+          const data = enc.encode(JSON.stringify({ ...m, sequence: ++this.seq }));
+          const signature = new Uint8Array(await crypto.subtle.sign("HMAC", this.mac, concat(enc.encode("near"), data)));
+          const bytes = concat(signature, data), packetId = crypto.getRandomValues(new Uint8Array(12)), total = Math.ceil(bytes.length / 6e4);
           for (let i = 0; i < total; i++) {
             const h = new Uint8Array(16);
             h.set(packetId);
@@ -588,13 +589,13 @@ function rtcReader(callback){const parts=new Map();return raw=>{try{if(raw[0]!==
 if(window.CAST_IROH_CONFIG){
 const canvas=document.querySelector('#screen'),ctx=canvas.getContext('2d',{alpha:false,desynchronized:true}),status=document.querySelector('#status'),stats=document.querySelector('#stats'),control=document.querySelector('#control'),keyboard=document.querySelector('#keyboard'),hint=document.querySelector('#hint');
 function fitCanvas(){const main=document.querySelector('main'),w=Math.max(1,main.clientWidth-20),h=Math.max(1,main.clientHeight-20),ratio=canvas.width/canvas.height,fw=Math.min(w,h*ratio);canvas.style.width=fw+'px';canvas.style.height=(fw/ratio)+'px';}let fittingFrame=0;new ResizeObserver(()=>{if(!fittingFrame)fittingFrame=requestAnimationFrame(()=>{fittingFrame=0;fitCanvas();});}).observe(document.querySelector('main'));
-const baseURL=location.origin+'/';let streamEpoch=null,lastFrameSeq=0;let connectionGeneration=0;let netMode='tunnel';let ws,inputSocket,pc,rtcControl,rtcVideo,rtcReady=false,preferControl=true,mine=false,remoteWidth=0,remoteHeight=0,count=0,inputId=0,composing=false,lastMove=0,painted=0,rtt=null;
+const baseURL=location.origin+'/';let streamEpoch=null,lastFrameSeq=0,nativeWindow=false,geometryKey=null;let connectionGeneration=0;let netMode='tunnel';let ws,inputSocket,pc,rtcControl,rtcVideo,rtcReady=false,preferControl=true,mine=false,remoteWidth=0,remoteHeight=0,count=0,inputId=0,composing=false,lastMove=0,painted=0,rtt=null;
 const media=document.createElement('video');media.autoplay=true;media.muted=true;media.playsInline=true;media.style.cssText='position:fixed;pointer-events:none;object-fit:fill;z-index:1;opacity:0;';document.body.append(media);document.querySelector('#empty').style.zIndex='3';canvas.style.position='relative';canvas.style.zIndex='2';let frameMeta=null,videoFrames=0;
 let awaitingFreshProof=true;let sourceConnected=false,haveFrame=false,lastTransportAt=performance.now(),connectingAt=performance.now(),lastRenderedAt=0;
 const environmentNumber=window.CAST_IROH_CONFIG?.number;
 if(environmentNumber){document.querySelector('#environment-title').textContent='环境 '+environmentNumber+' · 浏览器投屏';document.title='环境 '+environmentNumber+' · 浏览器投屏';}
 function markDisconnected(reason='连接已断开'){
- sourceConnected=false;document.documentElement.dataset.connection='disconnected';document.querySelector('main').classList.add('disconnected');
+ rejectClipboard();sourceConnected=false;document.documentElement.dataset.connection='disconnected';document.querySelector('main').classList.add('disconnected');
  const empty=document.querySelector('#empty');empty.hidden=false;empty.textContent='已断开 · '+reason;
  media.style.opacity='0';status.style.color='#ff9d9d';status.textContent='● 已断开 · '+reason;mine=false;control.disabled=true;control.classList.remove('on');control.textContent='已断开';hint.textContent='连接恢复前不能操作';
 }
@@ -609,7 +610,7 @@ function mergeStoredErrors(){const rows=new Map(clientErrors.map(row=>[row.id,ro
 function persistErrors(){try{for(const row of clientErrors)localStorage.setItem(clientErrorPrefix+row.id,JSON.stringify(row));return true;}catch(e){console.error('投屏错误队列保存失败',e);hint.textContent='错误日志暂存失败：'+e.message;return false;}}
 try{mergeStoredErrors();const legacy=JSON.parse(localStorage.getItem(clientErrorKey)||'[]');if(legacy.length){const ids=new Set(clientErrors.map(row=>row.id));for(const row of legacy)if(!ids.has(row.id))clientErrors.push({...row,message:'旧版观看页记录，原来源未核实：'+row.message});if(persistErrors())localStorage.removeItem(clientErrorKey);}}catch(e){console.error('投屏错误队列读取失败',e);document.querySelector('#logging-fault').textContent='错误日志读取失败：'+e.message;}
 window.castFullErrorHandler=true;function reportError(event,error){const message=String(error?.message||error||event).replace(/(?:https?|wss?):\/\/[^\s"']+/g,'[url]');clientErrors.push({type:'clientError',id:crypto.randomUUID(),event,message});persistErrors();flushErrors()}
-window.castRecoveryError=(event,error)=>reportError(event,error);window.castRecoveryIsOnline=()=>sourceConnected&&haveFrame&&performance.now()-lastTransportAt<6500;function flushErrors(){try{mergeStoredErrors()}catch(e){console.error('投屏待保存日志读取失败',e);document.querySelector('#logging-fault').textContent='错误日志读取失败：'+e.message;}if(ws?.readyState!==1&&!activeRTC())return;for(const row of clientErrors)send(row)}
+window.castRecoveryError=(event,error)=>reportError(event,error);window.castRecoveryIsOnline=()=>sourceConnected&&haveFrame&&performance.now()-lastTransportAt<1600;function flushErrors(){try{mergeStoredErrors()}catch(e){console.error('投屏待保存日志读取失败',e);document.querySelector('#logging-fault').textContent='错误日志读取失败：'+e.message;}if(ws?.readyState!==1&&!activeRTC())return;for(const row of clientErrors)send(row)}
 window.addEventListener('error',e=>reportError('uncaught-error',e.error||e.message));window.addEventListener('unhandledrejection',e=>reportError('unhandled-rejection',e.reason));
 let lastProofAt=performance.now(),lastProofSentAt=0;const frameProofs=new Map(),proofRequests=new Set();
 function requestFrameProof(){const id=crypto.randomUUID();proofRequests.add(id);send({type:"frameProbe",id});}
@@ -622,41 +623,42 @@ function videoFrame(){media.requestVideoFrameCallback(videoFrame);const m=frameM
 media.requestVideoFrameCallback(videoFrame);
 function activeRTC(){return !!(pc?.connectionState==='connected'&&rtcControl?.readyState==='open'&&rtcVideo?.readyState==='open')}
 function send(m){rtcReady=activeRTC();if(rtcReady&&rtcWrite(rtcControl,m))return;if(ws?.readyState===1)ws.send(JSON.stringify(m))}
-let lastPongAt=performance.now();let clockOffset=0,minClockRtt=Infinity,currentFrameTransit=0,currentCaptureAge=0;const stageSamples=[];const probeTimes=new Map(),visualLatencies=[];const inputTimes=new Map(),latencies=[];window.castDiagnostics={latencies,visualLatencies,stageSamples,probe(){const id=++inputId;probeTimes.set(id,performance.now());send({type:"probe",id});},get transport(){return netMode==='local'?'local':activeRTC()?"webrtc":"websocket"},get pc(){return pc}};function act(m){if(mine){const id=++inputId;inputTimes.set(id,performance.now());send({type:'input',id,epoch:streamEpoch,...m});return id}}
+let lastPongAt=performance.now();let clockOffset=0,minClockRtt=Infinity,currentFrameTransit=0,currentCaptureAge=0;const stageSamples=[];const probeTimes=new Map(),visualLatencies=[];const inputTimes=new Map(),latencies=[];window.castDiagnostics={latencies,visualLatencies,stageSamples,probe(){const id=++inputId;probeTimes.set(id,performance.now());send({type:"probe",id});},get transport(){return netMode==='local'?'local':activeRTC()?"webrtc":"websocket"},get pc(){return pc}};function act(m){if(mine){const id=++inputId;inputTimes.set(id,performance.now());send({type:'input',id,epoch:streamEpoch,geometryKey,...m});return id}}
 function setControl(m){mine=!!m.mine&&sourceConnected&&haveFrame&&!awaitingFreshProof;control.classList.toggle('on',mine);control.textContent=mine?'释放控制':m.active?'其他窗口控制中':'启用控制';control.disabled=!sourceConnected||!haveFrame||awaitingFreshProof||(!!m.active&&!mine);hint.textContent=mine?'点击画面操作 · 支持中文输入':'连接后默认启用控制';}
 function checkProbe(){if(!probeTimes.size||canvas.width<288)return;const scale=canvas.width/(remoteWidth||canvas.width);function pixel(x){return ctx.getImageData(Math.floor(x*scale),Math.max(1,Math.floor(8*scale)),1,1).data}const a=pixel(264),b=pixel(280);if(!(a[0]>170&&a[1]<100&&a[2]>170&&b[0]<100&&b[1]>170&&b[2]>170))return;let code=0;for(let i=0;i<16;i++){const p=pixel(16*i+8);if(p[0]+p[1]+p[2]>384)code|=1<<i}for(const[id,start]of probeTimes)if((id%1000)+1===code){probeTimes.delete(id);requestAnimationFrame(()=>{const ms=performance.now()-start;visualLatencies.push(ms);stageSamples.push({total:ms});if(stageSamples.length>300)stageSamples.shift();if(visualLatencies.length>300)visualLatencies.shift();send({type:'measurement',values:{kind:'inputToPaint',ms:Math.round(ms),transport:netMode==='local'?'local':rtcReady?'webrtc':'websocket'}})});}}
-async function draw(m){try{if(m.epoch&&m.epoch!==streamEpoch)return;const raw=Uint8Array.fromBase64?Uint8Array.fromBase64(m.data):Uint8Array.from(atob(m.data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([raw],{type:'image/jpeg'}));if((m.epoch&&m.epoch!==streamEpoch)||(m.type==='frame'&&m.seq<=lastFrameSeq)){image.close();return;}if(canvas.width!==image.width||canvas.height!==image.height){canvas.width=image.width;canvas.height=image.height;fitCanvas();}remoteWidth=m.width||image.width;remoteHeight=m.height||image.height;ctx.drawImage(image,0,0);if(m.type==='frame'){lastFrameSeq=m.seq;send({type:'framePainted',seq:m.seq,epoch:m.epoch});}image.close();checkProbe();haveFrame=true;lastRenderedAt=performance.now();confirmFrameProof();markConnected();count++;painted++;confirmFrameProof();document.documentElement.dataset.frames=painted;if(sourceConnected){status.style.color='#66dbad';status.textContent='● 已连接 · '+(rtt===null?'测量延迟中':`控制往返 ${rtt} ms`);}}finally{send({type:'ack',seq:m.seq,epoch:m.epoch})}}
+async function draw(m){try{if(m.epoch&&m.epoch!==streamEpoch)return;const raw=Uint8Array.fromBase64?Uint8Array.fromBase64(m.data):Uint8Array.from(atob(m.data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([raw],{type:m.mime||'image/jpeg'}));if((m.epoch&&m.epoch!==streamEpoch)||(m.type==='frame'&&m.seq<=lastFrameSeq)){image.close();return;}if(canvas.width!==image.width||canvas.height!==image.height){canvas.width=image.width;canvas.height=image.height;fitCanvas();}remoteWidth=m.width||image.width;remoteHeight=m.height||image.height;geometryKey=m.geometryKey;ctx.drawImage(image,0,0);if(m.type==='frame'){lastFrameSeq=m.seq;send({type:'framePainted',seq:m.seq,epoch:m.epoch});}image.close();checkProbe();haveFrame=true;lastRenderedAt=performance.now();confirmFrameProof();markConnected();count++;painted++;confirmFrameProof();document.documentElement.dataset.frames=painted;if(sourceConnected){status.style.color='#66dbad';status.textContent='● 已连接 · '+(rtt===null?'测量延迟中':`控制往返 ${rtt} ms`);}}finally{send({type:'ack',seq:m.seq,epoch:m.epoch})}}
 function onMessage(m){if(m.logging)document.querySelector('#logging-fault').textContent=m.logging.fault?'错误日志暂时无法保存，正在恢复':'';
+ if(m.type==='clipboard'||m.type==='clipboardError'||m.type==='clipboardAck'){finishClipboard(m);return;}
  if(m.type==='clientErrorAck'){if(m.logging?.fault){hint.textContent='后端日志保存失败：'+m.logging.fault.message;return;}clientErrors=clientErrors.filter(x=>x.id!==m.id);try{localStorage.removeItem(clientErrorPrefix+m.id)}catch(e){console.error('投屏错误确认保存失败',e);document.querySelector('#logging-fault').textContent='错误确认保存失败：'+e.message;}return;}
  if(m.type==='frameProof'){if(proofRequests.has(m.id)&&m.epoch===streamEpoch){frameProofs.set(m.id,m);confirmFrameProof();}return;}
  if(m.type==='sourceStatus'){acceptHealth(m.online,m.message);return;}
  if(m.type==='error'){markDisconnected(m.message||'远端连接错误');return;}
 
  if(m.type==='frameMeta'){frameMeta=m;media.style.opacity=sourceConnected?'1':'0';canvas.style.opacity='0';return;}
- else if(m.type==='sourceChanged'){haveFrame=false;connectingAt=performance.now();lastProofAt=connectingAt;lastProofSentAt=0;frameProofs.clear();proofRequests.clear();awaitingFreshProof=true;markDisconnected('正在确认切换后的实时画面');frameMeta=null;media.style.opacity='0';canvas.style.opacity='1';streamEpoch=m.epoch;lastFrameSeq=0;remoteWidth=0;remoteHeight=0;ctx.clearRect(0,0,canvas.width,canvas.height);document.querySelector('#empty').hidden=false;}
+ else if(m.type==='sourceChanged'){rejectClipboard();geometryKey=null;document.documentElement.dataset.streamEpoch=m.epoch;haveFrame=false;connectingAt=performance.now();lastProofAt=connectingAt;lastProofSentAt=0;frameProofs.clear();proofRequests.clear();awaitingFreshProof=true;markDisconnected('正在确认切换后的实时画面');frameMeta=null;media.style.opacity='0';canvas.style.opacity='1';streamEpoch=m.epoch;lastFrameSeq=0;remoteWidth=0;remoteHeight=0;ctx.clearRect(0,0,canvas.width,canvas.height);document.querySelector('#empty').hidden=false;}
  else if(m.type==='tabs'){const bar=document.querySelector('#tabs');const key=JSON.stringify(m);if(bar.dataset.key!==key){bar.dataset.key=key;bar.replaceChildren(...m.tabs.map(t=>{const b=document.createElement('button');b.textContent=t.title||t.url||'新标签页';b.title=t.url;b.classList.toggle('selected',t.id===m.selected);b.onclick=()=>send({type:'switchTab',id:t.id});return b;}));}}
  else if(m.type==='frame'){media.style.opacity='0';canvas.style.opacity='1';currentFrameTransit=m.serverTime?performance.now()-m.serverTime-clockOffset:0;currentCaptureAge=m.captureAgeMs||0;draw(m).catch(e=>reportError('frame-draw',e));}
  else if(m.type==='probeFrame'){draw(m).then(()=>new Promise(r=>requestAnimationFrame(r))).then(()=>{const t=probeTimes.get(m.probeId);if(t!==undefined){probeTimes.delete(m.probeId);const ms=performance.now()-t;visualLatencies.push(ms);stageSamples.push({total:ms});if(stageSamples.length>300)stageSamples.shift();if(visualLatencies.length>300)visualLatencies.shift();send({type:'measurement',values:{kind:'inputToPaint',ms:Math.round(ms),transport:netMode==='local'?'local':rtcReady?'webrtc':'websocket'}});}}).catch(e=>reportError('viewer-async',e));}
- else if(m.type==='pong'){acceptHealth(m.sourceOnline!==false,m.message);lastPongAt=performance.now();rtt=Math.round(performance.now()-m.sent);if(m.serverTime&&rtt<minClockRtt){minClockRtt=rtt;clockOffset=(performance.now()+m.sent)/2-m.serverTime;}document.documentElement.dataset.rtt=rtt;if(sourceConnected&&haveFrame)status.textContent='● 已连接 · '+(netMode==='local'?'本机直连':rtcReady?'WebRTC 直连':'加密中继')+' · 往返 '+rtt+' ms';send({type:'measurement',values:{kind:'rtt',ms:rtt,transport:netMode==='local'?'local':rtcReady?'webrtc':'websocket'}});}
+ else if(m.type==='pong'){acceptHealth(m.sourceOnline!==false,m.message);lastPongAt=performance.now();rtt=Math.round(performance.now()-m.sent);if(m.serverTime&&rtt<minClockRtt){minClockRtt=rtt;clockOffset=(performance.now()+m.sent)/2-m.serverTime;}document.documentElement.dataset.rtt=rtt;if(sourceConnected&&haveFrame)status.textContent='● 已连接 · '+(netMode==='local'?'本机直连':rtcReady?'WebRTC 直连':'中继')+' · 往返 '+rtt+' ms';send({type:'measurement',values:{kind:'rtt',ms:rtt,transport:netMode==='local'?'local':rtcReady?'webrtc':'websocket'}});}
  else if(m.type==='inputAck'){const start=inputTimes.get(m.id);if(start!==undefined){const ms=performance.now()-start;inputTimes.delete(m.id);latencies.push(ms);if(latencies.length>300)latencies.shift();send({type:'measurement',values:{kind:'inputAck',ms:Math.round(ms),transport:netMode==='local'?'local':rtcReady?'webrtc':'websocket'}});}}
  else if(m.type==='control')setControl(m);
  else if(m.type==='error'){status.textContent=m.message;status.style.color='#ffc57d';}
- else if(m.type==='hello'){lastProofAt=performance.now();lastProofSentAt=0;frameProofs.clear();proofRequests.clear();awaitingFreshProof=true;haveFrame=false;acceptHealth(!!m.sourceOnline);if(m.number!==undefined){document.title='环境 '+m.number+' · 浏览器投屏';document.querySelector('#environment-title').textContent=document.title;}streamEpoch=m.epoch;lastFrameSeq=0;document.querySelector('#tabs').replaceChildren();delete document.querySelector('#tabs').dataset.key;control.disabled=true;send({type:'visibility',visible:document.visibilityState==='visible'});send({type:'tabsRequest'});if(preferControl)send({type:'claim'});if(netMode!=='local')beginRTC();}
+ else if(m.type==='hello'){nativeWindow=m.fullWindow===true;document.documentElement.dataset.fullWindow=String(nativeWindow);document.documentElement.dataset.streamEpoch=m.epoch;document.querySelector('#tabs').style.display=nativeWindow?'none':'';document.querySelector('main').style.height=nativeWindow?'calc(100dvh - 108px)':'';lastProofAt=performance.now();lastProofSentAt=0;frameProofs.clear();proofRequests.clear();awaitingFreshProof=true;haveFrame=false;acceptHealth(!!m.sourceOnline);if(m.number!==undefined){document.title='环境 '+m.number+' · 浏览器投屏';document.querySelector('#environment-title').textContent=document.title;}streamEpoch=m.epoch;lastFrameSeq=0;document.querySelector('#tabs').replaceChildren();delete document.querySelector('#tabs').dataset.key;control.disabled=true;send({type:'visibility',visible:document.visibilityState==='visible'});send({type:'tabsRequest'});if(preferControl)send({type:'claim'});if(!nativeWindow&&netMode!=='local')beginRTC();}
  else if(m.type==='signal'){signal(m).catch(e=>reportError('viewer-async',e))}
- else if(m.type==='rtcAvailable'){if(netMode!=='local'&&!rtcReady)beginRTC();}
+ else if(m.type==='rtcAvailable'){if(!nativeWindow&&netMode!=='local'&&!rtcReady)beginRTC();}
  else if(m.type==='rtcFallback'){rtcReady=false;document.documentElement.dataset.transport='websocket';}
 }
 let iceQueue=[],offerSent=false,lastRtcAttempt=0;
 async function beginRTC(){if(window.CAST_IROH_CONFIG)return;lastRtcAttempt=performance.now();if(pc)pc.close();rtcReady=false;offerSent=false;iceQueue=[];remoteIce=[];lastPongAt=performance.now();pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.cloudflare.com:3478'},{urls:'stun:stun.l.google.com:19302'}],iceCandidatePoolSize:1});pc.addTransceiver('video',{direction:'recvonly'});pc.ontrack=e=>{media.srcObject=e.streams[0]||new MediaStream([e.track]);try{if('jitterBufferTarget'in e.receiver)e.receiver.jitterBufferTarget=0;if('playoutDelayHint'in e.receiver)e.receiver.playoutDelayHint=0;}catch(e){reportError('rtc-playout-options',e)}media.play().catch(e=>reportError('viewer-async',e));};rtcControl=pc.createDataChannel('control',{ordered:true});rtcVideo=pc.createDataChannel('video',{ordered:false,maxRetransmits:0});const reader=rtcReader(onMessage,e=>reportError('rtc-message',e));for(const ch of [rtcControl,rtcVideo]){ch.onmessage=e=>reader(e.data);ch.onopen=()=>{if(rtcControl.readyState==='open'&&rtcVideo.readyState==='open'){rtcReady=true;document.documentElement.dataset.transport='webrtc';send({type:'ping',sent:performance.now()});if(preferControl)send({type:'claim'})}};ch.onclose=()=>{rtcReady=false;document.documentElement.dataset.transport='websocket'}}pc.onicecandidate=e=>{if(e.candidate){const m={type:'signal',candidate:e.candidate.toJSON()};if(offerSent&&ws.readyState===1)ws.send(JSON.stringify(m));else iceQueue.push(m)}};pc.onconnectionstatechange=()=>{if(['failed','closed'].includes(pc.connectionState)){rtcReady=false;document.documentElement.dataset.transport='websocket'}};await pc.setLocalDescription(await pc.createOffer());ws.send(JSON.stringify({type:'signal',description:pc.localDescription.toJSON()}));offerSent=true;for(const m of iceQueue)ws.send(JSON.stringify(m));iceQueue=[];}
 let remoteIce=[];async function signal(m){if(!pc)return;if(m.description){await pc.setRemoteDescription(m.description);for(const c of remoteIce)await pc.addIceCandidate(c);remoteIce=[]}else if(m.candidate){if(pc.remoteDescription)await pc.addIceCandidate(m.candidate);else remoteIce.push(m.candidate)}}
-let forcedRecoveryTimer;function recoverTransport(message){if(forcedRecoveryTimer)return;markDisconnected(message);const old=ws;ws=null;inputSocket=null;connectionGeneration++;pc?.close();rtcReady=false;haveFrame=false;lastTransportAt=performance.now();old?.close();forcedRecoveryTimer=setTimeout(()=>{forcedRecoveryTimer=null;connect()},1500)}
+let forcedRecoveryTimer;function recoverTransport(message){if(forcedRecoveryTimer)return;markDisconnected(message);const old=ws;ws=null;inputSocket=null;connectionGeneration++;pc?.close();rtcReady=false;haveFrame=false;lastTransportAt=performance.now();old?.close();forcedRecoveryTimer=setTimeout(()=>{forcedRecoveryTimer=null;connect()},100)}
 function connect(){
  connectingAt=performance.now();
  const generation=++connectionGeneration;
  const urls=[{url:baseURL.replace(/^http/,'ws')+'stream',mode:'tunnel'}];
  if(!window.CAST_IROH_CONFIG&&new URL(location.href).searchParams.get('transport')!=='webrtc')for(const port of [18766,18768])urls.push({url:'ws://127.0.0.1:'+port+new URL(baseURL).pathname+'stream',mode:'local'});
  const sockets=[];let selected=null,retryTimer;
- function retry(){if(!retryTimer)retryTimer=setTimeout(connect,1500)}
+ function retry(){if(!retryTimer)retryTimer=setTimeout(connect,100)}
  for(const endpoint of urls){let socket;try{socket=new WebSocket(endpoint.url)}catch(e){reportError('viewer-connect',e);continue}sockets.push(socket);
   socket.onmessage=e=>{if(generation!==connectionGeneration)return;let m;try{m=JSON.parse(e.data)}catch(error){reportError('viewer-message',error);return}
    if(m.type==='hello'&&(!selected||(netMode==='tunnel'&&endpoint.mode==='local'))){if(retryTimer){clearTimeout(retryTimer);retryTimer=null}const old=selected;selected=socket;ws=socket;inputSocket=socket;netMode=endpoint.mode;rtcReady=false;pc?.close();if(old)old.close();for(const other of sockets)if(other!==socket&&(endpoint.mode==='local'||other.url.startsWith('wss:')))other.close();document.documentElement.dataset.transport=netMode;onMessage(m);return;}
@@ -667,7 +669,7 @@ function connect(){
      const watch=setInterval(()=>{if(generation!==connectionGeneration){clearInterval(watch);return;}if(activeRTC())return;clearInterval(watch);mine=false;control.disabled=true;retry();},250);
     }else{rtcReady=false;pc?.close();mine=false;control.disabled=true;markDisconnected('公网连接中断，正在恢复');retry()}}else if(!selected&&sockets.every(s=>s.readyState>=2)){markDisconnected('公网连接失败，正在恢复');retry()}};socket.onerror=()=>{if(generation!==connectionGeneration)return;if(!selected)markDisconnected('公网连接失败');};
  }
- setTimeout(()=>{if(generation===connectionGeneration&&!selected&&!activeRTC()){for(const s of sockets)s.close();retry()}},35000);
+ setTimeout(()=>{if(generation===connectionGeneration&&!selected&&!activeRTC()){for(const s of sockets)s.close();retry()}},2000);
 }
 
 control.onclick=()=>{preferControl=!mine;send({type:mine?'release':'claim'})};document.querySelector('#full').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
@@ -676,7 +678,7 @@ function position(e){const r=canvas.getBoundingClientRect();return{x:Math.max(0,
 function mouse(e,type){const buttons=['left','middle','right'];act({kind:'mouse',params:{type,...position(e),button:type==='mouseMoved'?(e.buttons&1?'left':e.buttons&2?'right':e.buttons&4?'middle':'none'):buttons[e.button]||'none',buttons:e.buttons,clickCount:Math.min(2,e.detail||1),modifiers:mods(e)}})}
 canvas.onpointerdown=e=>{if(!mine)return;e.preventDefault();keyboard.focus({preventScroll:true});canvas.setPointerCapture(e.pointerId);mouse(e,'mousePressed')};canvas.onpointerup=e=>{if(!mine)return;e.preventDefault();mouse(e,'mouseReleased')};canvas.onpointermove=e=>{if(!mine||performance.now()-lastMove<25)return;lastMove=performance.now();mouse(e,'mouseMoved')};canvas.oncontextmenu=e=>{if(mine)e.preventDefault()};canvas.addEventListener('wheel',e=>{if(!mine)return;e.preventDefault();const factor=e.deltaMode===1?16:e.deltaMode===2?remoteHeight:1;act({kind:'mouse',params:{type:'mouseWheel',...position(e),deltaX:e.deltaX*factor,deltaY:e.deltaY*factor,modifiers:mods(e)}})},{passive:false});
 const vk={Backspace:8,Tab:9,Enter:13,Shift:16,Control:17,Alt:18,Escape:27,PageUp:33,PageDown:34,End:35,Home:36,ArrowLeft:37,ArrowUp:38,ArrowRight:39,ArrowDown:40,Insert:45,Delete:46,Meta:91,F1:112,F2:113,F3:114,F4:115,F5:116,F6:117,F7:118,F8:119,F9:120,F10:121,F11:122,F12:123};
-function key(e,type){if(!mine||composing||e.isComposing||e.key==='Process'||e.keyCode===229)return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='v')return;const shortcut=e.ctrlKey||e.metaKey||e.altKey;if(vk[e.key]||shortcut){e.preventDefault();act({kind:'key',params:{type,key:e.key,code:e.code,windowsVirtualKeyCode:vk[e.key]||e.keyCode,modifiers:mods(e),autoRepeat:e.repeat}})}}
+function key(e,type){if(!mine||composing||e.isComposing||e.key==='Process'||e.keyCode===229)return;if((e.ctrlKey||e.metaKey)&&['c','v'].includes(e.key.toLowerCase())){if(e.key.toLowerCase()==='c'){e.preventDefault();if(type==='rawKeyDown'&&!e.repeat)copyRemote();}return;}const shortcut=e.ctrlKey||e.metaKey||e.altKey;if(vk[e.key]||shortcut){e.preventDefault();act({kind:'key',params:{type,key:e.key,code:e.code,windowsVirtualKeyCode:vk[e.key]||e.keyCode,modifiers:mods(e),autoRepeat:e.repeat}})}}
 // Commit text once. Pre-edit strings remain local until the IME commits them.
 let compositionCommit=null,ignoreNextInput=null;
 function commitText(text){if(mine&&typeof text==='string'&&text.length)act({kind:'text',text});}
@@ -710,7 +712,55 @@ keyboard.oninput=e=>{
  if(type==='insertText'&&typeof e.data==='string')commitText(e.data);
  clearLocalInput();
 };
-keyboard.onpaste=e=>{if(!mine)return;e.preventDefault();compositionCommit=null;ignoreNextInput=null;composing=false;commitText(e.clipboardData.getData('text/plain'));clearLocalInput();};
+keyboard.onpaste=e=>{
+ if(!mine)return;e.preventDefault();compositionCommit=null;ignoreNextInput=null;composing=false;
+ const transfer=e.clipboardData,items=[];
+ for(const mime of ['text/plain','text/html'])if(transfer.types.includes(mime))items.push({mime,blob:new Blob([transfer.getData(mime)],{type:mime})});
+ for(const file of transfer.files)if(file.type==='image/png')items.push({mime:'image/png',blob:file});
+ pasteRemote(items).catch(e=>clipboardFailure(e));clearLocalInput();
+};
+const clipboardPending=new Map();
+function clipboardFailure(error){hint.textContent='复制粘贴失败：'+String(error?.message||error);reportError('clipboard',error);}
+function finishClipboard(message){
+ const pending=clipboardPending.get(message.id);if(!pending)return;clipboardPending.delete(message.id);clearTimeout(pending.timer);
+ if(pending.epoch!==streamEpoch||(!message.epoch&&message.type!=='clipboardError')||(message.epoch&&message.epoch!==pending.epoch)){pending.reject(Error('剪贴板目标已经变化'));return;}
+ message.type==='clipboardError'?pending.reject(Error(message.message)):pending.resolve(message);
+}
+function clipboardRequest(action,items){
+ if(!mine||!sourceConnected)return Promise.reject(Error('当前窗口尚未取得控制'));
+ const id=crypto.randomUUID(),epoch=streamEpoch;
+ return new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>{clipboardPending.delete(id);reject(Error('剪贴板传输超时；未重放操作'))},7000);
+  clipboardPending.set(id,{resolve,reject,timer,epoch});send({type:'clipboard',id,epoch,action,items});
+ });
+}
+function rejectClipboard(){for(const pending of clipboardPending.values()){clearTimeout(pending.timer);pending.reject(Error('连接或目标窗口已变化'))}clipboardPending.clear();}
+function decodeClipboard(item){return new Blob([Uint8Array.from(atob(item.data),c=>c.charCodeAt(0))],{type:item.mime});}
+async function encodeClipboard(blob){
+ if(blob.size>16777216)throw Error('剪贴板内容超过16 MiB传输上限');
+ const data=new Uint8Array(await blob.arrayBuffer());let binary='';
+ for(let i=0;i<data.length;i+=32768)binary+=String.fromCharCode(...data.subarray(i,i+32768));
+ return btoa(binary);
+}
+function copyRemote(){
+ if(!navigator.clipboard?.write||!window.ClipboardItem){clipboardFailure(Error('当前浏览器未提供安全剪贴板接口'));return;}
+ const epoch=streamEpoch;const response=clipboardRequest('copy');
+ // Start a write inside the actual Ctrl+C activation; its Blob resolves on reply.
+ const text=response.then(m=>{if(epoch!==streamEpoch||!mine)throw Error('复制目标已经变化');const item=m.items.find(i=>i.mime==='text/plain');if(!item)throw Error('远端剪贴板没有纯文本格式');return decodeClipboard(item)});
+ let initial;try{initial=navigator.clipboard.write([new ClipboardItem({'text/plain':text})])}catch(error){initial=Promise.reject(error)}
+ const plainResult=initial.then(()=>({ok:true}),error=>({ok:false,error}));
+ Promise.all([response,plainResult]).then(async([message,plain])=>{
+  if(epoch!==streamEpoch||!mine)throw Error('复制目标已经变化');
+  const items=Object.fromEntries(message.items.filter(i=>!ClipboardItem.supports||ClipboardItem.supports(i.mime)).map(i=>[i.mime,decodeClipboard(i)]));
+  if(Object.keys(items).some(mime=>mime!=='text/plain'))await navigator.clipboard.write([new ClipboardItem(items)]);else if(!plain.ok)throw plain.error;
+ }).catch(clipboardFailure);
+}
+async function pasteRemote(items){
+ if(!items.length)throw Error('剪贴板中没有浏览器支持的内容');
+ const epoch=streamEpoch,encoded=[];let size=0;
+ for(const item of items){size+=item.blob.size;if(size>16777216)throw Error('剪贴板内容超过16 MiB传输上限');encoded.push({mime:item.mime,data:await encodeClipboard(item.blob)})}
+ if(epoch!==streamEpoch||!mine)throw Error('粘贴目标已变化');await clipboardRequest('paste',encoded);
+}
 keyboard.addEventListener('blur',()=>{composing=false;compositionCommit=null;ignoreNextInput=null;clearLocalInput();});
 
 document.addEventListener('visibilitychange',()=>{
@@ -720,7 +770,7 @@ document.addEventListener('visibilitychange',()=>{
  if(visible){lastProofSentAt=performance.now();requestFrameProof();}
 });
 window.addEventListener('blur',()=>{if(mine)send({type:'resetKeys'})});window.addEventListener('focus',()=>{if(preferControl)send({type:'claim'})});
-setInterval(()=>{rtcReady=activeRTC();if(netMode!=='local'&&!rtcReady&&ws?.readyState===1&&performance.now()-lastRtcAttempt>45000)beginRTC().catch(e=>reportError('viewer-async',e));if(activeRTC()&&performance.now()-lastPongAt>6000){pc?.close();rtcReady=false;}if(inputSocket?.readyState===1||activeRTC())send({type:'ping',sent:performance.now()});if(performance.now()-lastTransportAt>6500){markDisconnected('超过 6 秒未收到连接确认');if(ws?.readyState===1||activeRTC())recoverTransport('连接确认超时，正在恢复');}else if(document.visibilityState==='visible'&&!forcedRecoveryTimer&&!haveFrame&&performance.now()-connectingAt>10000){reportError('first-frame-timeout','未收到远端实时画面');recoverTransport('未收到远端实时画面，正在恢复');}if(document.visibilityState==='visible'&&(ws?.readyState===1||activeRTC())&&performance.now()-lastProofSentAt>4000){lastProofSentAt=performance.now();requestFrameProof();}if(document.visibilityState==='visible'&&haveFrame&&performance.now()-lastProofAt>12000){markDisconnected('画面确认超时，正在恢复');reportError('frame-proof-timeout','画面确认超时；可见状态='+document.visibilityState+'；已绘制序号='+lastFrameSeq+'；待确认='+frameProofs.size);recoverTransport('画面确认超时，正在恢复');lastProofAt=performance.now();}flushErrors();stats.textContent=`${netMode==='local'?'本机直连':rtcReady?'WebRTC':'加密中继'} · ${count} 帧/秒 · 已绘制 ${painted} 帧`;count=0},1000);connect();
+setInterval(()=>{rtcReady=activeRTC();if(!nativeWindow&&netMode!=='local'&&!rtcReady&&ws?.readyState===1&&performance.now()-lastRtcAttempt>45000)beginRTC().catch(e=>reportError('viewer-async',e));if(activeRTC()&&performance.now()-lastPongAt>6000){pc?.close();rtcReady=false;}if(inputSocket?.readyState===1||activeRTC())send({type:'ping',sent:performance.now()});if(performance.now()-lastTransportAt>1600){markDisconnected('未及时收到连接确认');if(ws?.readyState===1||activeRTC())recoverTransport('连接确认超时，正在恢复');}else if(document.visibilityState==='visible'&&!forcedRecoveryTimer&&!haveFrame&&performance.now()-connectingAt>10000){reportError('first-frame-timeout','未收到远端实时画面');recoverTransport('未收到远端实时画面，正在恢复');}if(document.visibilityState==='visible'&&(ws?.readyState===1||activeRTC())&&performance.now()-lastProofSentAt>4000){lastProofSentAt=performance.now();requestFrameProof();}if(document.visibilityState==='visible'&&haveFrame&&performance.now()-lastProofAt>12000){markDisconnected('画面确认超时，正在恢复');reportError('frame-proof-timeout','画面确认超时；可见状态='+document.visibilityState+'；已绘制序号='+lastFrameSeq+'；待确认='+frameProofs.size);recoverTransport('画面确认超时，正在恢复');lastProofAt=performance.now();}flushErrors();stats.textContent=`${netMode==='local'?'本机直连':rtcReady?'WebRTC':'中继'} · ${count} 帧/秒 · 已绘制 ${painted} 帧`;count=0},500);connect();
 
 }
 </script></body></html>
