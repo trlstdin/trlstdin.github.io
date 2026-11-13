@@ -456,7 +456,7 @@ window.addEventListener('unhandledrejection',e=>{if(!window.castFullErrorHandler
 class CastSocket extends EventTarget {
  static CONNECTING=0;static OPEN=1;static CLOSING=2;static CLOSED=3;
  static standby=null;static standbyTimer=null;static routeCursor=0;
- static relays=[...new Set(config.relays?.length?config.relays:[...(new URL(config.relay).hostname.endsWith('.relay.n0.iroh.link')?['https://aps1-1.relay.n0.iroh.link']:[]),config.relay])];
+ static relays=[...new Set(config.relays?.length?config.relays:[config.relay])];
  // Authenticate one idle relay connection ahead of time. It carries no player
  // session, frames, clipboard or input until it replaces a failed connection.
  static prepare(){
