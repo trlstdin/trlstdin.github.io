@@ -455,7 +455,8 @@ window.addEventListener('unhandledrejection',e=>{if(!window.castFullErrorHandler
     window.CAST_IROH_CONFIG = config;
 class CastSocket extends EventTarget {
  static CONNECTING=0;static OPEN=1;static CLOSING=2;static CLOSED=3;
- static standby=null;static standbyTimer=null;
+ static standby=null;static standbyTimer=null;static routeCursor=0;
+ static relays=[...new Set(config.relays?.length?config.relays:[...(new URL(config.relay).hostname.endsWith('.relay.n0.iroh.link')?['https://aps1-1.relay.n0.iroh.link']:[]),config.relay])];
  // Authenticate one idle relay connection ahead of time. It carries no player
  // session, frames, clipboard or input until it replaces a failed connection.
  static prepare(){
@@ -474,10 +475,10 @@ class CastSocket extends EventTarget {
    if(next.readyState===1){next.readyState=0;queueMicrotask(()=>next.activate());}
    return next;
   }
-  this.prewarming=prewarming;this.url=url;this.readyState=0;this.id=crypto.randomUUID();this.seq=0;this.parts=new Map();this.chain=Promise.resolve();this.outgoing=Promise.resolve();this.started=performance.now();void this.connect().catch(e=>this.fail(e));}
+  this.prewarming=prewarming;this.relay=CastSocket.relays[CastSocket.routeCursor++%CastSocket.relays.length];this.url=url;this.readyState=0;this.id=crypto.randomUUID();this.seq=0;this.parts=new Map();this.chain=Promise.resolve();this.outgoing=Promise.resolve();this.started=performance.now();void this.connect().catch(e=>this.fail(e));}
  emit(type,data){const e=type==='message'?new MessageEvent(type,{data}):new Event(type);this.dispatchEvent(e);this['on'+type]?.(e)}
  async connect(){this.keys=await crypto.subtle.generateKey('Ed25519',true,['sign','verify']);this.pub=new Uint8Array(await crypto.subtle.exportKey('raw',this.keys.publicKey));this.mac=await crypto.subtle.importKey('raw',unhex(config.key),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
- const w=this.wire=new NativeWebSocket(config.relay.replace(/^http/,'ws')+'/relay',['iroh-relay-v1']);w.binaryType='arraybuffer';w.onmessage=e=>{this.chain=this.chain.then(()=>this.receive(new Uint8Array(e.data))).catch(e=>this.fail(e))};w.onerror=()=>this.fail(Error('中继连接失败'));w.onclose=()=>this.finish();this.timeout=setTimeout(()=>this.fail(Error('中继连接超时')),18000);}
+ const w=this.wire=new NativeWebSocket(this.relay.replace(/^http/,'ws')+'/relay',['iroh-relay-v1']);w.binaryType='arraybuffer';w.onmessage=e=>{this.chain=this.chain.then(()=>this.receive(new Uint8Array(e.data))).catch(e=>this.fail(e))};w.onerror=()=>this.fail(Error('中继连接失败'));w.onclose=()=>this.finish();this.timeout=setTimeout(()=>this.fail(Error('中继连接超时')),18000);}
  async receive(b){if(b[0]===0){const hash=blake3(b.slice(1),{context:enc.encode('iroh-relay handshake v1 challenge signature')});const sig=new Uint8Array(await crypto.subtle.sign('Ed25519',this.keys.privateKey,hash));this.wire.send(concat(new Uint8Array([1]),this.pub,new Uint8Array([64]),sig));return}
  if(b[0]===2){clearTimeout(this.timeout);this.readyState=1;
   if(!this.prewarming)this.activate();
@@ -500,7 +501,7 @@ class CastSocket extends EventTarget {
  }
  close(){if(this.readyState===3)return;this.readyState=2;this.wire?.close();this.finish()}
 }
-    window.WebSocket = CastSocket;
+window.WebSocket = CastSocket;
   } else {
     document.body.innerHTML = "<main><p>\u8BF7\u4F7F\u7528\u72EC\u7ACB\u76D8\u7BA1\u7406\u5668\u751F\u6210\u7684\u5B8C\u6574\u6295\u5C4F\u94FE\u63A5\u3002</p></main>";
   }
